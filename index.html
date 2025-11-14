@@ -1,0 +1,1161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="description" content="Transponder Key Database - Offline inventory and vehicle reference" />
+    <title>Transponder Key Database</title>
+    <link rel="manifest" href="manifest.json" />
+    <link rel="apple-touch-icon" href="icon-192.png" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f4f4;
+            margin: 0;
+            padding: 0;
+        }
+
+        .tab-container {
+            display: flex;
+            background-color: #333;
+            border-bottom: 2px solid #333;
+            border-radius: 10px 10px 0 0;
+            overflow: hidden;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 12px;
+            text-align: center;
+            cursor: pointer;
+            font-weight: bold;
+            color: hotpink;
+            background-color: black;
+            border-radius: 10px 10px 0 0;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .tab.active {
+            background-color: hotpink;
+            color: black;
+        }
+
+        .tab-content {
+            display: none;
+            padding: 20px;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            margin-top: 10px;
+        }
+
+        th, td {
+            border: 1px solid #ccc;
+            padding: 8px;
+            text-align: left;
+        }
+
+        th {
+            background: #eee;
+            font-weight: bold;
+        }
+
+        #searchInput, #inventorySearchInput, #vehicleSearchInput {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .results-section {
+            margin-bottom: 30px;
+        }
+
+        .results-section h3 {
+            color: hotpink;
+            margin-top: 20px;
+            margin-bottom: 10px;
+        }
+
+        .save-button {
+            background-color: hotpink;
+            color: black;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 30px;
+            font-weight: bold;
+            box-shadow: 0px 2px 5px rgba(0,0,0,0.3);
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        .save-button:hover {
+            opacity: 0.9;
+        }
+
+        #saveStatus, #saveVehicleStatus {
+            margin-left: 10px;
+            color: green;
+            font-weight: bold;
+        }
+
+        .no-results {
+            padding: 20px;
+            background: white;
+            border-radius: 5px;
+            color: #666;
+        }
+
+        .stock-indicator {
+            color: green;
+            font-weight: bold;
+        }
+
+        .no-stock {
+            color: #999;
+        }
+
+        .compatible-list {
+            background: white;
+            padding: 15px;
+            margin-top: 10px;
+            border-radius: 5px;
+        }
+
+        .compatible-list h4 {
+            color: hotpink;
+            margin-top: 0;
+            margin-bottom: 10px;
+        }
+
+        .compatible-list ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            column-count: 2;
+            column-gap: 20px;
+        }
+
+        .compatible-list li {
+            padding: 5px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .notes-display {
+            background: #fffacd;
+            padding: 10px;
+            margin-top: 10px;
+            border-left: 4px solid hotpink;
+            border-radius: 4px;
+        }
+
+        .notes-display strong {
+            color: hotpink;
+        }
+
+        /* Data Management Styles */
+        .data-management-container {
+            display: flex;
+            gap: 20px;
+            align-items: flex-start;
+        }
+
+        .file-list-container {
+            flex: 1;
+        }
+
+        .file-list-box {
+            border: 2px solid #ccc;
+            border-radius: 5px;
+            background: white;
+            height: 400px;
+            overflow-y: auto;
+            padding: 15px;
+        }
+
+        .file-item {
+            padding: 12px;
+            margin-bottom: 10px;
+            background: #f9f9f9;
+            border-radius: 5px;
+            border-left: 4px solid hotpink;
+        }
+
+        .file-item label {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            cursor: pointer;
+        }
+
+        .file-item input[type="checkbox"] {
+            margin-top: 3px;
+        }
+
+        .file-details {
+            flex: 1;
+        }
+
+        .file-name {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .file-meta {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .management-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        /* Scroll to top button */
+        .scroll-top-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background-color: hotpink;
+            color: black;
+            border: none;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            display: none;
+            z-index: 1000;
+        }
+
+        .scroll-top-btn:hover {
+            opacity: 0.8;
+        }
+
+        @media (max-width: 600px) {
+            .tab {
+                font-size: 14px;
+                padding: 10px;
+            }
+
+            th, td {
+                font-size: 12px;
+            }
+
+            .compatible-list ul {
+                column-count: 1;
+            }
+
+            .data-management-container {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="tab-container">
+        <div id="searchTab" class="tab active" onclick="switchTab('search')">Quick Search</div>
+        <div id="inventoryTab" class="tab" onclick="switchTab('inventory')">Inventory</div>
+        <div id="vehicleTab" class="tab" onclick="switchTab('vehicle')">Vehicle Reference</div>
+        <div id="dataTab" class="tab" onclick="switchTab('data')">Data Management</div>
+    </div>
+
+    <!-- Quick Search Tab -->
+    <div id="searchContent" class="tab-content active">
+        <input type="text" id="searchInput" placeholder="Search for vehicle (e.g., 2014 Chevrolet Camaro)..." oninput="performQuickSearch()" />
+        
+        <div class="results-section">
+            <div id="searchResults" class="no-results">Enter a vehicle to find compatible keys...</div>
+        </div>
+    </div>
+
+    <!-- Inventory Tab -->
+    <div id="inventoryContent" class="tab-content">
+        <button class="save-button" onclick="saveInventory()">Save Changes</button>
+        <span id="saveStatus"></span>
+        
+        <button class="save-button" onclick="exportInventory()" style="margin-left: 10px;">Export to CSV</button>
+        <button class="save-button" onclick="clearAllInventory()" style="margin-left: 10px; background-color: #ff6b6b;">Clear All Data</button>
+        
+        <input type="text" id="inventorySearchInput" placeholder="Search inventory..." oninput="filterInventory()" style="margin-top: 15px;" />
+        <div id="inventoryTableContainer"></div>
+        
+        <button class="scroll-top-btn" id="inventoryScrollBtn" onclick="scrollToTop()">↑</button>
+    </div>
+
+    <!-- Vehicle Reference Tab -->
+    <div id="vehicleContent" class="tab-content">
+        <button class="save-button" onclick="saveVehicles()">Save Changes</button>
+        <span id="saveVehicleStatus"></span>
+        
+        <button class="save-button" onclick="exportVehicles()" style="margin-left: 10px;">Export to CSV</button>
+        <button class="save-button" onclick="clearAllVehicles()" style="margin-left: 10px; background-color: #ff6b6b;">Clear All Data</button>
+        
+        <input type="text" id="vehicleSearchInput" placeholder="Search vehicles..." oninput="filterVehicles()" style="margin-top: 15px;" />
+        <div id="vehicleTableContainer"></div>
+        
+        <button class="scroll-top-btn" id="vehicleScrollBtn" onclick="scrollToTop()">↑</button>
+    </div>
+
+    <!-- Data Management Tab -->
+    <div id="dataContent" class="tab-content">
+        <h3>File Management</h3>
+        <div class="data-management-container">
+            <div class="file-list-container">
+                <h4>📁 Loaded Files:</h4>
+                <div class="file-list-box" id="fileListBox">
+                    <div style="color: #999; text-align: center; padding: 50px;">
+                        No files loaded. Import a CSV to get started.
+                    </div>
+                </div>
+            </div>
+            
+            <div class="management-buttons">
+                <button class="save-button" onclick="document.getElementById('inventoryFileInput').click()">Import Inventory CSV</button>
+                <input type="file" id="inventoryFileInput" accept=".csv" style="display: none;" onchange="importInventory(event)" />
+                
+                <button class="save-button" onclick="document.getElementById('vehicleFileInput').click()">Import Vehicle Ref CSV</button>
+                <input type="file" id="vehicleFileInput" accept=".csv" style="display: none;" onchange="importVehicleReference(event)" />
+                
+                <button class="save-button" onclick="deleteSelectedFiles()">Delete Selected</button>
+                
+                <button class="save-button" onclick="resetEverything()" style="background-color: #ff3333; margin-top: 20px;">⚠️ Reset Everything</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // IndexedDB Setup
+        let db;
+        const DB_NAME = 'TransponderDB';
+        const DB_VERSION = 3; // Increment for new schema
+        const INVENTORY_STORE = 'inventory';
+        const VEHICLE_STORE = 'vehicles';
+        const FILES_STORE = 'files'; // New store to track imported files
+
+        // Initialize IndexedDB
+        function initDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+                
+                request.onerror = () => reject(request.error);
+                request.onsuccess = () => {
+                    db = request.result;
+                    resolve(db);
+                };
+                
+                request.onupgradeneeded = (event) => {
+                    db = event.target.result;
+                    
+                    // Create inventory store with new structure
+                    if (!db.objectStoreNames.contains(INVENTORY_STORE)) {
+                        const inventoryStore = db.createObjectStore(INVENTORY_STORE, { keyPath: 'id', autoIncrement: true });
+                        inventoryStore.createIndex('Make', 'Make', { unique: false });
+                        inventoryStore.createIndex('Model', 'Model', { unique: false });
+                        inventoryStore.createIndex('Product_Name', 'Product_Name', { unique: false });
+                    }
+                    
+                    // Create vehicle reference store
+                    if (!db.objectStoreNames.contains(VEHICLE_STORE)) {
+                        const vehicleStore = db.createObjectStore(VEHICLE_STORE, { autoIncrement: true });
+                        vehicleStore.createIndex('Make', 'Make', { unique: false });
+                        vehicleStore.createIndex('Model', 'Model', { unique: false });
+                    }
+                    
+                    // Create files tracking store
+                    if (!db.objectStoreNames.contains(FILES_STORE)) {
+                        const filesStore = db.createObjectStore(FILES_STORE, { keyPath: 'id', autoIncrement: true });
+                        filesStore.createIndex('filename', 'filename', { unique: false });
+                        filesStore.createIndex('type', 'type', { unique: false });
+                    }
+                };
+            });
+        }
+
+        // Tab switching
+        function switchTab(tab) {
+            document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+            document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
+            document.getElementById(tab + "Tab").classList.add("active");
+            document.getElementById(tab + "Content").classList.add("active");
+            
+            // Load data when switching tabs
+            if (tab === 'inventory') {
+                displayInventory();
+            } else if (tab === 'vehicle') {
+                displayVehicles();
+            } else if (tab === 'data') {
+                displayFileList();
+            }
+        }
+
+        // Import Inventory CSV with flexible column mapping
+        function importInventory(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const filename = file.name;
+            
+            Papa.parse(file, {
+                header: true,
+                skipEmptyLines: true,
+                complete: async (results) => {
+                    const transaction = db.transaction([INVENTORY_STORE, FILES_STORE], 'readwrite');
+                    const inventoryStore = transaction.objectStore(INVENTORY_STORE);
+                    const filesStore = transaction.objectStore(FILES_STORE);
+                    
+                    const fileId = Date.now();
+                    
+                    // Column mapping - accepts variations
+                    const mapColumn = (row, variations) => {
+                        for (let v of variations) {
+                            if (row[v] !== undefined) return row[v];
+                        }
+                        return '';
+                    };
+                    
+                    // Add new data
+                    results.data.forEach(row => {
+                        const item = {
+                            Make: mapColumn(row, ['Make', 'make']),
+                            Model: mapColumn(row, ['Model', 'model']),
+                            'Year(s)': mapColumn(row, ['Year(s)', 'Year_Range', 'Years', 'Year', 'year']),
+                            'Product_Name': mapColumn(row, ['Product_Name', 'Product Name', 'Key Name', 'Transponder Key', 'Name']),
+                            Type: mapColumn(row, ['Type', 'Type(s)', 'type', 'Key Type']),
+                            Qty: mapColumn(row, ['Qty', 'Quantity', 'My Total Qty', 'Stock', 'Current Stock']) || '0',
+                            Notes: mapColumn(row, ['Notes', 'notes', 'Note']) || '',
+                            _fileId: fileId
+                        };
+                        
+                        inventoryStore.add(item);
+                    });
+                    
+                    // Track the file
+                    filesStore.add({
+                        filename: filename,
+                        type: 'Inventory',
+                        importDate: new Date().toISOString(),
+                        recordCount: results.data.length,
+                        fileId: fileId
+                    });
+                    
+                    transaction.oncomplete = () => {
+                        alert(`Inventory imported successfully!\n${results.data.length} items added.`);
+                        displayInventory();
+                        displayFileList();
+                        event.target.value = ''; // Reset file input
+                    };
+                    
+                    transaction.onerror = () => {
+                        alert('Error importing inventory!');
+                    };
+                }
+            });
+        }
+
+        // Import Vehicle Reference CSV
+        function importVehicleReference(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const filename = file.name;
+            
+            Papa.parse(file, {
+                header: true,
+                skipEmptyLines: true,
+                complete: async (results) => {
+                    const transaction = db.transaction([VEHICLE_STORE, FILES_STORE], 'readwrite');
+                    const vehicleStore = transaction.objectStore(VEHICLE_STORE);
+                    const filesStore = transaction.objectStore(FILES_STORE);
+                    
+                    const fileId = Date.now();
+                    
+                    // Add new data
+                    results.data.forEach(row => {
+                        const cleanRow = {
+                            Make: row.Make || '',
+                            Model: row.Model || '',
+                            Year_Range: row.Year_Range || row.Year || '',
+                            Product_Name: row.Product_Name || row['Transponder Key'] || '',
+                            Qty: row.Qty || '0',
+                            Notes: row.Notes || '',
+                            _fileId: fileId
+                        };
+                        
+                        vehicleStore.add(cleanRow);
+                    });
+                    
+                    // Track the file
+                    filesStore.add({
+                        filename: filename,
+                        type: 'Vehicle Reference',
+                        importDate: new Date().toISOString(),
+                        recordCount: results.data.length,
+                        fileId: fileId
+                    });
+                    
+                    transaction.oncomplete = () => {
+                        alert(`Vehicle reference imported successfully!\n${results.data.length} items added.`);
+                        displayVehicles();
+                        displayFileList();
+                        event.target.value = ''; // Reset file input
+                    };
+                    
+                    transaction.onerror = () => {
+                        alert('Error importing vehicle reference!');
+                    };
+                }
+            });
+        }
+
+        // Display File List
+        function displayFileList() {
+            const transaction = db.transaction([FILES_STORE], 'readonly');
+            const store = transaction.objectStore(FILES_STORE);
+            const request = store.getAll();
+            
+            request.onsuccess = () => {
+                const files = request.result;
+                const container = document.getElementById('fileListBox');
+                
+                if (files.length === 0) {
+                    container.innerHTML = '<div style="color: #999; text-align: center; padding: 50px;">No files loaded. Import a CSV to get started.</div>';
+                    return;
+                }
+                
+                let html = '';
+                files.forEach(file => {
+                    const date = new Date(file.importDate).toLocaleDateString();
+                    html += `
+                        <div class="file-item">
+                            <label>
+                                <input type="checkbox" class="file-checkbox" data-file-id="${file.id}" data-internal-id="${file.fileId}">
+                                <div class="file-details">
+                                    <div class="file-name">${file.filename}</div>
+                                    <div class="file-meta">
+                                        Type: ${file.type} | ${file.recordCount} items | Imported: ${date}
+                                    </div>
+                                </div>
+                            </label>
+                        </div>
+                    `;
+                });
+                
+                container.innerHTML = html;
+            };
+        }
+
+        // Delete Selected Files
+        function deleteSelectedFiles() {
+            const checkboxes = document.querySelectorAll('.file-checkbox:checked');
+            if (checkboxes.length === 0) {
+                alert('Please select files to delete');
+                return;
+            }
+            
+            if (!confirm(`Delete ${checkboxes.length} file(s) and all associated data?`)) {
+                return;
+            }
+            
+            const fileIds = Array.from(checkboxes).map(cb => parseInt(cb.dataset.fileId));
+            const internalIds = Array.from(checkboxes).map(cb => parseInt(cb.dataset.internalId));
+            
+            const transaction = db.transaction([INVENTORY_STORE, VEHICLE_STORE, FILES_STORE], 'readwrite');
+            const inventoryStore = transaction.objectStore(INVENTORY_STORE);
+            const vehicleStore = transaction.objectStore(VEHICLE_STORE);
+            const filesStore = transaction.objectStore(FILES_STORE);
+            
+            // Delete file records
+            fileIds.forEach(id => filesStore.delete(id));
+            
+            // Delete associated data from inventory
+            const invRequest = inventoryStore.openCursor();
+            invRequest.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (cursor) {
+                    if (internalIds.includes(cursor.value._fileId)) {
+                        cursor.delete();
+                    }
+                    cursor.continue();
+                }
+            };
+            
+            // Delete associated data from vehicles
+            const vehRequest = vehicleStore.openCursor();
+            vehRequest.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (cursor) {
+                    if (internalIds.includes(cursor.value._fileId)) {
+                        cursor.delete();
+                    }
+                    cursor.continue();
+                }
+            };
+            
+            transaction.oncomplete = () => {
+                alert('Selected files deleted successfully!');
+                displayFileList();
+                displayInventory();
+                displayVehicles();
+            };
+        }
+
+        // Helper function to check if a year is within a range
+        function yearMatchesRange(searchYear, dataValue) {
+            const rangeMatch = dataValue.match(/(\d{4})\s*[-–—]\s*(\d{4})/);
+            const ongoingMatch = dataValue.match(/(\d{4})\s*\+/);
+            
+            if (rangeMatch) {
+                const startYear = parseInt(rangeMatch[1]);
+                const endYear = parseInt(rangeMatch[2]);
+                return searchYear >= startYear && searchYear <= endYear;
+            }
+            
+            if (ongoingMatch) {
+                const startYear = parseInt(ongoingMatch[1]);
+                const currentYear = new Date().getFullYear();
+                return searchYear >= startYear && searchYear <= currentYear;
+            }
+            
+            return false;
+        }
+
+        // Display Inventory Table
+        function displayInventory(filterText = '') {
+            const transaction = db.transaction([INVENTORY_STORE], 'readonly');
+            const store = transaction.objectStore(INVENTORY_STORE);
+            const request = store.getAll();
+            
+            request.onsuccess = () => {
+                let data = request.result;
+                
+                if (filterText) {
+                    const searchTerms = filterText.toLowerCase().trim().split(/\s+/);
+                    data = data.filter(item => {
+                        return searchTerms.every(term => {
+                            const yearMatch = term.match(/^\d{4}$/);
+                            if (yearMatch) {
+                                const searchYear = parseInt(term);
+                                return Object.values(item).some(val => {
+                                    if (!val) return false;
+                                    const valStr = val.toString().toLowerCase();
+                                    return valStr.includes(term) || yearMatchesRange(searchYear, valStr);
+                                });
+                            }
+                            return Object.values(item).some(val => 
+                                val && val.toString().toLowerCase().includes(term)
+                            );
+                        });
+                    });
+                }
+                
+                const container = document.getElementById('inventoryTableContainer');
+                
+                if (data.length === 0) {
+                    container.innerHTML = '<div class="no-results">No inventory data. Import a CSV file to get started.</div>';
+                    return;
+                }
+                
+                const headers = ['Make', 'Model', 'Year(s)', 'Product_Name', 'Type', 'Qty', 'Notes'];
+                let html = '<table><thead><tr>' + headers.map(h => `<th>${h === 'Product_Name' ? 'Product Name' : h}</th>`).join('') + '</tr></thead><tbody>';
+                
+                data.forEach(row => {
+                    html += '<tr data-row-id="' + row.id + '">' + headers.map(h => 
+                        `<td contenteditable="true" data-field="${h}">${row[h] || ''}</td>`
+                    ).join('') + '</tr>';
+                });
+                
+                html += '</tbody></table>';
+                container.innerHTML = html;
+            };
+        }
+
+        // Display Vehicle Reference Table
+        function displayVehicles(filterText = '') {
+            const transaction = db.transaction([VEHICLE_STORE], 'readonly');
+            const store = transaction.objectStore(VEHICLE_STORE);
+            const request = store.getAll();
+            
+            request.onsuccess = () => {
+                let data = request.result;
+                
+                if (filterText) {
+                    const searchTerms = filterText.toLowerCase().trim().split(/\s+/);
+                    data = data.filter(item => {
+                        return searchTerms.every(term => {
+                            const yearMatch = term.match(/^\d{4}$/);
+                            if (yearMatch) {
+                                const searchYear = parseInt(term);
+                                return Object.values(item).some(val => {
+                                    if (!val) return false;
+                                    const valStr = val.toString().toLowerCase();
+                                    return valStr.includes(term) || yearMatchesRange(searchYear, valStr);
+                                });
+                            }
+                            return Object.values(item).some(val => 
+                                val && val.toString().toLowerCase().includes(term)
+                            );
+                        });
+                    });
+                }
+                
+                const container = document.getElementById('vehicleTableContainer');
+                
+                if (data.length === 0) {
+                    container.innerHTML = '<div class="no-results">No vehicle data. Import a CSV file to get started.</div>';
+                    return;
+                }
+                
+                const headers = ['Make', 'Model', 'Year_Range', 'Product_Name', 'Qty', 'Notes'];
+                let html = '<table><thead><tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr></thead><tbody>';
+                
+                data.forEach(row => {
+                    html += '<tr data-row-id="' + row.id + '">' + headers.map(h => 
+                        `<td contenteditable="true" data-field="${h}">${row[h] || ''}</td>`
+                    ).join('') + '</tr>';
+                });
+                
+                html += '</tbody></table>';
+                container.innerHTML = html;
+            };
+        }
+
+        // Quick Search - searches INVENTORY database
+        function performQuickSearch() {
+            const query = document.getElementById('searchInput').value.toLowerCase().trim();
+            
+            if (!query) {
+                document.getElementById('searchResults').innerHTML = '<div class="no-results">Enter a vehicle to find compatible keys...</div>';
+                return;
+            }
+            
+            const searchTerms = query.split(/\s+/);
+            
+            // Search INVENTORY database
+            const inventoryTransaction = db.transaction([INVENTORY_STORE], 'readonly');
+            const inventoryStore = inventoryTransaction.objectStore(INVENTORY_STORE);
+            const inventoryRequest = inventoryStore.getAll();
+            
+            inventoryRequest.onsuccess = () => {
+                const items = inventoryRequest.result.filter(item => {
+                    return searchTerms.every(term => {
+                        const yearMatch = term.match(/^\d{4}$/);
+                        if (yearMatch) {
+                            const searchYear = parseInt(term);
+                            return Object.values(item).some(val => {
+                                if (!val) return false;
+                                const valStr = val.toString().toLowerCase();
+                                return valStr.includes(term) || yearMatchesRange(searchYear, valStr);
+                            });
+                        }
+                        return Object.values(item).some(val => 
+                            val && val.toString().toLowerCase().includes(term)
+                        );
+                    });
+                });
+                
+                if (items.length === 0) {
+                    document.getElementById('searchResults').innerHTML = '<div class="no-results">No items found in inventory.</div>';
+                    return;
+                }
+                
+                const matchedItem = items[0];
+                const keyName = matchedItem.Product_Name || 'Unknown Key';
+                
+                // Get all items that use this same key
+                const allItemsWithKey = inventoryRequest.result.filter(item => 
+                    (item.Product_Name || 'Unknown Key') === keyName
+                );
+                
+                displaySearchResult(matchedItem, allItemsWithKey);
+            };
+        }
+
+        function displaySearchResult(item, allCompatibleItems) {
+            const container = document.getElementById('searchResults');
+            const qty = item.Qty || 0;
+            const qtyClass = parseInt(qty) > 0 ? 'stock-indicator' : 'no-stock';
+            
+            let html = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Make</th>
+                            <th>Model</th>
+                            <th>Year(s)</th>
+                            <th>Product Name</th>
+                            <th>Type</th>
+                            <th>Qty</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>${item.Make || ''}</td>
+                            <td>${item.Model || ''}</td>
+                            <td>${item['Year(s)'] || ''}</td>
+                            <td>${item.Product_Name || ''}</td>
+                            <td>${item.Type || ''}</td>
+                            <td class="${qtyClass}">${qty}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            `;
+            
+            // Show notes if they exist
+            if (item.Notes && item.Notes.trim()) {
+                html += `
+                    <div class="notes-display">
+                        <strong>Notes:</strong> ${item.Notes}
+                    </div>
+                `;
+            }
+            
+            // Add compatible vehicles list
+            if (allCompatibleItems.length > 0) {
+                html += `
+                    <div class="compatible-list">
+                        <h4>Also compatible with ${allCompatibleItems.length} vehicle(s):</h4>
+                        <ul>
+                            ${allCompatibleItems.map(v => 
+                                `<li>${v['Year(s)'] || 'N/A'} ${v.Make} ${v.Model}</li>`
+                            ).join('')}
+                        </ul>
+                    </div>
+                `;
+            }
+            
+            container.innerHTML = html;
+        }
+
+        // Filter functions
+        function filterInventory() {
+            const query = document.getElementById('inventorySearchInput').value;
+            displayInventory(query);
+        }
+
+        function filterVehicles() {
+            const query = document.getElementById('vehicleSearchInput').value;
+            displayVehicles(query);
+        }
+
+        // Save inventory changes
+        function saveInventory() {
+            const rows = document.querySelectorAll('#inventoryTableContainer tbody tr');
+            const transaction = db.transaction([INVENTORY_STORE], 'readwrite');
+            const store = transaction.objectStore(INVENTORY_STORE);
+            
+            rows.forEach(row => {
+                const cells = row.querySelectorAll('td');
+                const rowId = parseInt(row.getAttribute('data-row-id'));
+                
+                if (rowId) {
+                    const getRequest = store.get(rowId);
+                    getRequest.onsuccess = () => {
+                        const item = getRequest.result || { id: rowId };
+                        item.Make = cells[0].textContent.trim();
+                        item.Model = cells[1].textContent.trim();
+                        item['Year(s)'] = cells[2].textContent.trim();
+                        item.Product_Name = cells[3].textContent.trim();
+                        item.Type = cells[4].textContent.trim();
+                        item.Qty = cells[5].textContent.trim();
+                        item.Notes = cells[6].textContent.trim();
+                        store.put(item);
+                    };
+                }
+            });
+            
+            transaction.oncomplete = () => {
+                document.getElementById('saveStatus').textContent = 'Saved!';
+                setTimeout(() => {
+                    document.getElementById('saveStatus').textContent = '';
+                }, 2000);
+            };
+            
+            transaction.onerror = () => {
+                document.getElementById('saveStatus').textContent = 'Save failed!';
+                document.getElementById('saveStatus').style.color = 'red';
+            };
+        }
+
+        // Save vehicle changes
+        function saveVehicles() {
+            const rows = document.querySelectorAll('#vehicleTableContainer tbody tr');
+            const transaction = db.transaction([VEHICLE_STORE], 'readwrite');
+            const store = transaction.objectStore(VEHICLE_STORE);
+            
+            rows.forEach(row => {
+                const cells = row.querySelectorAll('td');
+                const rowId = parseInt(row.getAttribute('data-row-id'));
+                
+                if (rowId) {
+                    const getRequest = store.get(rowId);
+                    getRequest.onsuccess = () => {
+                        const item = getRequest.result || {};
+                        item.Make = cells[0].textContent.trim();
+                        item.Model = cells[1].textContent.trim();
+                        item.Year_Range = cells[2].textContent.trim();
+                        item.Product_Name = cells[3].textContent.trim();
+                        item.Qty = cells[4].textContent.trim();
+                        item.Notes = cells[5].textContent.trim();
+                        store.put(item);
+                    };
+                }
+            });
+            
+            transaction.oncomplete = () => {
+                document.getElementById('saveVehicleStatus').textContent = 'Saved!';
+                setTimeout(() => {
+                    document.getElementById('saveVehicleStatus').textContent = '';
+                }, 2000);
+            };
+            
+            transaction.onerror = () => {
+                document.getElementById('saveVehicleStatus').textContent = 'Save failed!';
+                document.getElementById('saveVehicleStatus').style.color = 'red';
+            };
+        }
+
+        // Export inventory to CSV - smart export (filtered if search active)
+        function exportInventory() {
+            const transaction = db.transaction([INVENTORY_STORE], 'readonly');
+            const store = transaction.objectStore(INVENTORY_STORE);
+            const request = store.getAll();
+            
+            request.onsuccess = () => {
+                let data = request.result;
+                
+                // Smart filtering - if search box has text, export filtered results
+                const filterText = document.getElementById('inventorySearchInput').value;
+                if (filterText.trim()) {
+                    const searchTerms = filterText.toLowerCase().trim().split(/\s+/);
+                    data = data.filter(item => {
+                        return searchTerms.every(term => {
+                            const yearMatch = term.match(/^\d{4}$/);
+                            if (yearMatch) {
+                                const searchYear = parseInt(term);
+                                return Object.values(item).some(val => {
+                                    if (!val) return false;
+                                    const valStr = val.toString().toLowerCase();
+                                    return valStr.includes(term) || yearMatchesRange(searchYear, valStr);
+                                });
+                            }
+                            return Object.values(item).some(val => 
+                                val && val.toString().toLowerCase().includes(term)
+                            );
+                        });
+                    });
+                }
+                
+                if (data.length === 0) {
+                    alert('No inventory data to export');
+                    return;
+                }
+                
+                // Remove internal fields
+                const exportData = data.map(item => {
+                    const { _fileId, ...rest } = item;
+                    return rest;
+                });
+                
+                const csv = Papa.unparse(exportData);
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                
+                const date = new Date().toISOString().split('T')[0];
+                const suffix = filterText.trim() ? '_filtered' : '_all';
+                a.href = url;
+                a.download = `inventory${suffix}_${date}.csv`;
+                
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                
+                // Show confirmation
+                const msg = filterText.trim() ? 
+                    `Exported ${data.length} filtered items` : 
+                    `Exported ${data.length} items (all data)`;
+                alert(msg);
+            };
+        }
+
+        // Export vehicles to CSV - smart export (filtered if search active)
+        function exportVehicles() {
+            const transaction = db.transaction([VEHICLE_STORE], 'readonly');
+            const store = transaction.objectStore(VEHICLE_STORE);
+            const request = store.getAll();
+            
+            request.onsuccess = () => {
+                let data = request.result;
+                
+                // Smart filtering - if search box has text, export filtered results
+                const filterText = document.getElementById('vehicleSearchInput').value;
+                if (filterText.trim()) {
+                    const searchTerms = filterText.toLowerCase().trim().split(/\s+/);
+                    data = data.filter(item => {
+                        return searchTerms.every(term => {
+                            const yearMatch = term.match(/^\d{4}$/);
+                            if (yearMatch) {
+                                const searchYear = parseInt(term);
+                                return Object.values(item).some(val => {
+                                    if (!val) return false;
+                                    const valStr = val.toString().toLowerCase();
+                                    return valStr.includes(term) || yearMatchesRange(searchYear, valStr);
+                                });
+                            }
+                            return Object.values(item).some(val => 
+                                val && val.toString().toLowerCase().includes(term)
+                            );
+                        });
+                    });
+                }
+                
+                if (data.length === 0) {
+                    alert('No vehicle data to export');
+                    return;
+                }
+                
+                // Remove internal fields
+                const exportData = data.map(item => {
+                    const { id, _fileId, ...rest } = item;
+                    return rest;
+                });
+                
+                const csv = Papa.unparse(exportData);
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                
+                const date = new Date().toISOString().split('T')[0];
+                const suffix = filterText.trim() ? '_filtered' : '_all';
+                a.href = url;
+                a.download = `vehicles${suffix}_${date}.csv`;
+                
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                
+                // Show confirmation
+                const msg = filterText.trim() ? 
+                    `Exported ${data.length} filtered items` : 
+                    `Exported ${data.length} items (all data)`;
+                alert(msg);
+            };
+        }
+
+        // Clear All Inventory Data
+        function clearAllInventory() {
+            if (!confirm('⚠️ WARNING: This will delete ALL inventory data!\n\nAre you sure you want to continue?')) {
+                return;
+            }
+            
+            const transaction = db.transaction([INVENTORY_STORE], 'readwrite');
+            const store = transaction.objectStore(INVENTORY_STORE);
+            const request = store.clear();
+            
+            request.onsuccess = () => {
+                alert('All inventory data has been cleared.');
+                displayInventory();
+            };
+            
+            request.onerror = () => {
+                alert('Error clearing inventory data.');
+            };
+        }
+
+        // Clear All Vehicle Reference Data
+        function clearAllVehicles() {
+            if (!confirm('⚠️ WARNING: This will delete ALL vehicle reference data!\n\nAre you sure you want to continue?')) {
+                return;
+            }
+            
+            const transaction = db.transaction([VEHICLE_STORE], 'readwrite');
+            const store = transaction.objectStore(VEHICLE_STORE);
+            const request = store.clear();
+            
+            request.onsuccess = () => {
+                alert('All vehicle reference data has been cleared.');
+                displayVehicles();
+            };
+            
+            request.onerror = () => {
+                alert('Error clearing vehicle reference data.');
+            };
+        }
+
+        // Nuclear option - delete entire database and reload
+        function resetEverything() {
+            if (!confirm('⚠️⚠️⚠️ NUCLEAR OPTION ⚠️⚠️⚠️\n\nThis will DELETE THE ENTIRE DATABASE and reload the app.\n\nALL DATA WILL BE LOST.\n\nAre you ABSOLUTELY SURE?')) {
+                return;
+            }
+            
+            db.close();
+            const deleteRequest = indexedDB.deleteDatabase(DB_NAME);
+            
+            deleteRequest.onsuccess = () => {
+                alert('Database deleted. Page will reload.');
+                location.reload();
+            };
+            
+            deleteRequest.onerror = () => {
+                alert('Error deleting database. Try refreshing the page manually.');
+            };
+        }
+
+        // Scroll to top functionality
+        function scrollToTop() {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // Show/hide scroll button based on scroll position
+        window.addEventListener('scroll', () => {
+            const inventoryBtn = document.getElementById('inventoryScrollBtn');
+            const vehicleBtn = document.getElementById('vehicleScrollBtn');
+            const inventoryTab = document.getElementById('inventoryContent');
+            const vehicleTab = document.getElementById('vehicleContent');
+            
+            if (window.scrollY > 300) {
+                if (inventoryTab.classList.contains('active')) {
+                    inventoryBtn.style.display = 'block';
+                }
+                if (vehicleTab.classList.contains('active')) {
+                    vehicleBtn.style.display = 'block';
+                }
+            } else {
+                inventoryBtn.style.display = 'none';
+                vehicleBtn.style.display = 'none';
+            }
+        });
+
+        // Initialize on page load
+        window.onload = async () => {
+            await initDB();
+            displayInventory();
+            displayFileList();
+            
+            // Register Service Worker for PWA
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('service-worker.js')
+                    .then(reg => console.log('✅ Service Worker registered:', reg.scope))
+                    .catch(err => console.error('❌ Service Worker registration failed:', err));
+            }
+        };
+    </script>
+</body>
+</html>
