@@ -813,8 +813,9 @@ group.vehicles.forEach((v, vIndex) => {
     html += `<td contenteditable="true" data-id="${vehicleId}" data-field="Model">${v.model}</td>`;
     html += `<td contenteditable="true" data-id="${vehicleId}" data-field="Year(s)">${v.year}</td></tr>`;
 });
-html += '</table></div></td></tr>';
-            });
+html += '</table>';
+html += `<button onclick="addVehicleToGroup(${index}, '${group.product.replace(/'/g, "\\'")}')" style="margin-top:10px; padding:5px 10px; background:hotpink; color:white; border:none; border-radius:3px; cursor:pointer;">+ Add Vehicle</button>`;
+html += '</div></td></tr>';            });
             
             html += '</tbody></table>';
             html += `<div style="margin-top: 10px; color: #666;">Showing ${groupedArray.length} unique keys (${data.length} vehicles total)</div>`;
@@ -855,6 +856,35 @@ html += '</table></div></td></tr>';
         }
         
         // Toggle vehicle list in grouped view
+function addVehicleToGroup(groupIndex, productName) {
+    const make = prompt('Enter Make:');
+    if (!make) return;
+    const model = prompt('Enter Model:');
+    if (!model) return;
+    const year = prompt('Enter Year(s):');
+    if (!year) return;
+    
+    const transaction = db.transaction([INVENTORY_STORE], 'readwrite');
+    const store = transaction.objectStore(INVENTORY_STORE);
+    
+    const newItem = {
+        Make: make.toUpperCase(),
+        Model: model,
+        'Year(s)': year,
+        Product_Name: productName,
+        Type: '',
+        Qty: '0',
+        Notes: ''
+    };
+    
+    store.add(newItem);
+    
+    transaction.oncomplete = () => {
+        displayInventory();
+    };
+}
+
+function toggleVehicleList(index) {
         function toggleVehicleList(index) {
             const row = document.getElementById('vehicleList' + index);
             if (row) {
