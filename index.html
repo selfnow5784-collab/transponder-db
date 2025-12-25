@@ -805,11 +805,15 @@
                 
                 // Add expandable vehicle list row
                 html += `<tr id="vehicleList${index}" style="display: none;"><td colspan="5">`;
-                html += '<div style="background: #f9f9f9; padding: 10px; border-left: 3px solid hotpink;"><strong>Compatible with:</strong><div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-top: 5px;">';
-                group.vehicles.forEach(v => {
-                    html += `<div>• ${v.make} ${v.model} (${v.year})</div>`;
-                });
-                html += '</div></div></td></tr>';
+             html += '<div style="background: #f9f9f9; padding: 10px; border-left: 3px solid hotpink;"><strong>Compatible with:</strong>';
+html += '<table style="width:100%; margin-top:10px;"><tr><th>Make</th><th>Model</th><th>Year</th></tr>';
+group.vehicles.forEach((v, vIndex) => {
+    const vehicleId = group.ids[vIndex];
+    html += `<tr><td contenteditable="true" data-id="${vehicleId}" data-field="Make">${v.make}</td>`;
+    html += `<td contenteditable="true" data-id="${vehicleId}" data-field="Model">${v.model}</td>`;
+    html += `<td contenteditable="true" data-id="${vehicleId}" data-field="Year(s)">${v.year}</td></tr>`;
+});
+html += '</table></div></td></tr>';
             });
             
             html += '</tbody></table>';
@@ -1317,6 +1321,34 @@
                         };
                     });
                 });
+// Save edits to vehicle compatibility list
+    const vehicleCells = document.querySelectorAll('#inventoryTableContainer td[data-id][contenteditable]');
+    vehicleCells.forEach(cell => {
+        const id = parseInt(cell.getAttribute('data-id'));
+        const field = cell.getAttribute('data-field');
+        const value = cell.textContent.trim();
+        
+        const getRequest = store.get(id);
+        getRequest.onsuccess = () => {
+            const item = getRequest.result;
+            if (item) {
+                item[field] = value;
+                store.put(item);
+            }
+        };
+    });
+```
+
+So the structure becomes:
+```
+if (viewMode === 'grouped') {
+    // existing row save code
+    
+    // NEW: vehicle compatibility save code HERE
+    
+} else {
+    // vehicle view code
+}
             } else {
                 // In vehicle view, save individual rows
                 const rows = document.querySelectorAll('#inventoryTableContainer tbody tr[data-row-id]');
