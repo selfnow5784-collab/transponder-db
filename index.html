@@ -584,180 +584,162 @@
             request.onsuccess = () => {
                 const files = request.result;
                 const container = document.getElementById('fileListBox');
+                
                 if (files.length === 0) {
                     container.innerHTML = '<div style="color: #999; text-align: center; padding: 50px;">No files loaded. Import a CSV to get started.</div>';
                     return;
                 }
-
+                
                 let html = '';
                 files.forEach(file => {
-                    html += `<div class="file-item">
-                        <label>
-                            <input type="checkbox" class="file-checkbox" data-id="${file.id}">
-                            <div class="file-details">
-                                <div class="file-name">${file.filename}</div>
-                                <div class="file-meta">${file.type} • ${file.recordCount} records • ${new Date(file.importDate).toLocaleString()}</div>
-                            </div>
-                        </label>
-                    </div>`;
+                    const date = new Date(file.importDate).toLocaleDateString();
+                    html += `
+                        <div class="file-item">
+                            <label>
+                                <input type="checkbox" class="file-checkbox" data-file-id="${file.id}" data-internal-id="${file.fileId}">
+                                <div class="file-details">
+                                    <div class="file-name">${file.filename}</div>
+                                    <div class="file-meta">
+                                        Type: ${file.type} | ${file.recordCount} items | Imported: ${date}
+                                    </div>
+                                </div>
+                            </label>
+                        </div>
+                    `;
                 });
+                
                 container.innerHTML = html;
             };
         }
 
-        // Delete selected files (and associated data)
+        // Delete Selected Files
         function deleteSelectedFiles() {
             const checkboxes = document.querySelectorAll('.file-checkbox:checked');
             if (checkboxes.length === 0) {
-                alert('No files selected.');
+                alert('Please select files to delete');
                 return;
             }
-
-            if (!confirm(`Delete ${checkboxes.length} file(s) and all associated data?`)) return;
-
+            
+            if (!confirm(`Delete ${checkboxes.length} file(s) and all associated data?`)) {
+                return;
+            }
+            
+            const fileIds = Array.from(checkboxes).map(cb => parseInt(cb.dataset.fileId));
+            const internalIds = Array.from(checkboxes).map(cb => parseInt(cb.dataset.internalId));
+            
             const transaction = db.transaction([INVENTORY_STORE, VEHICLE_STORE, FILES_STORE], 'readwrite');
             const inventoryStore = transaction.objectStore(INVENTORY_STORE);
             const vehicleStore = transaction.objectStore(VEHICLE_STORE);
             const filesStore = transaction.objectStore(FILES_STORE);
-
-            checkboxes.forEach(cb => {
-                const fileId = cb.dataset.id;
-                const fileRecord = filesStore.get(parseInt(fileId));
-
-                fileRecord.onsuccess = () => {
-                    const file = fileRecord.result;
-                    if (file && file.fileId) {
-                        // Delete associated records
-                        const invIndex = inventoryStore.index('_fileId');
-                        const vehIndex = vehicleStore.index('_fileId');
-
-                        const invRange = IDBKeyRange.only(file.fileId);
-                        const vehRange = IDBKeyRange.only(file.fileId);
-
-                        invIndex.openCursor(invRange).onsuccess = e => {
-                            const cursor = e.target.result;
-                            if (cursor) {
-                                cursor.delete();
-                                cursor.continue();
-                            }
-                        };
-
-                        vehIndex.openCursor(vehRange).onsuccess = e => {
-                            const cursor = e.target.result;
-                            if (cursor) {
-                                cursor.delete();
-                                cursor.continue();
-                            }
-                        };
+            
+            // Delete file records
+            fileIds.forEach(id => filesStore.delete(id));
+            
+            // Delete associated data from inventory
+            const invRequest = inventoryStore.openCursor();
+            invRequest.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (cursor) {
+                    if (internalIds.includes(cursor.value._fileId)) {
+                        cursor.delete();
                     }
-                    filesStore.delete(parseInt(fileId));
-                };
-            });
-
+                    cursor.continue();
+                }
+            };
+            
+            // Delete associated data from vehicles
+            const vehRequest = vehicleStore.openCursor();
+            vehRequest.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (cursor) {
+                    if (internalIds.includes(cursor.value._fileId)) {
+                        cursor.delete();
+                    }
+                    cursor.continue();
+                }
+            };
+            
             transaction.oncomplete = () => {
-                alert('Selected files and data deleted.');
+                alert('Selected files deleted successfully!');
                 displayFileList();
                 displayInventory();
                 displayVehicles();
             };
         }
 
-        // Quick search
-        async function performQuickSearch() {
-            const query = document.getElementById('searchInput').value.toLowerCase().trim();
-            const inStockOnly = document.getElementById('inStockOnly').checked;
-            const resultsDiv = document.getElementById('searchResults');
-
-            if (!query) {
-                resultsDiv.innerHTML = '<div class="no-results">Enter a vehicle to find compatible keys...</div>';
-                return;
+        // Helper function to check if a year is within a range
+        function yearMatchesRange(searchYear, dataValue) {
+            const rangeMatch = dataValue.match(/(\d{4})\s*[-–—]\s*(\d{4})/);
+            const ongoingMatch = dataValue.match(/(\d{4})\s*\+/);
+            
+            if (rangeMatch) {
+                const startYear = parseInt(rangeMatch[1]);
+                const endYear = parseInt(rangeMatch[2]);
+                return searchYear >= startYear && searchYear <= endYear;
             }
-
-            const transaction = db.transaction([INVENTORY_STORE], 'readonly');
-            const store = transaction.objectStore(INVENTORY_STORE);
-            const request = store.getAll();
-
-            request.onsuccess = () => {
-                const data = request.result;
-                const matches = data.filter(item => {
-                    const makeMatch = item.Make && item.Make.toLowerCase().includes(query);
-                    const modelMatch = item.Model && item.Model.toLowerCase().includes(query);
-                    const yearMatch = item['Year(s)'] && item['Year(s)'].toLowerCase().includes(query);
-                    const fullString = `${item.Make || ''} ${item.Model || ''} ${item['Year(s)'] || ''}`.toLowerCase();
-                    const fullMatch = fullString.includes(query);
-
-                    if (inStockOnly && !(item.Qty && parseInt(item.Qty) > 0)) return false;
-
-                    return makeMatch || modelMatch || yearMatch || fullMatch;
-                });
-
-                if (matches.length === 0) {
-                    resultsDiv.innerHTML = '<div class="no-results">No matching vehicles found.</div>';
-                    return;
-                }
-
-                // Group by Product_Name
-                const grouped = {};
-                matches.forEach(item => {
-                    const key = item.Product_Name || 'Unknown';
-                    if (!grouped[key]) grouped[key] = [];
-                    grouped[key].push(item);
-                });
-
-                let html = '';
-                Object.keys(grouped).forEach(product => {
-                    const items = grouped[product];
-                    const qty = items[0].Qty || '0';
-                    const qtyClass = (parseInt(qty) > 0) ? 'stock-indicator' : 'no-stock';
-                    html += `<div class="results-section">
-                        <h3>${product} <span class="${qtyClass}">(${qty} in stock)</span></h3>
-                        <div class="compatible-list">
-                            <h4>Compatible Vehicles:</h4>
-                            <ul>`;
-                    items.forEach(item => {
-                        html += `<li>${item.Make || ''} ${item.Model || ''} ${item['Year(s)'] || ''}</li>`;
-                    });
-                    html += `</ul></div>`;
-                    if (items[0].Notes) {
-                        html += `<div class="notes-display"><strong>Notes:</strong> ${items[0].Notes}</div>`;
-                    }
-                    html += `</div>`;
-                });
-
-                resultsDiv.innerHTML = html;
-            };
+            
+            if (ongoingMatch) {
+                const startYear = parseInt(ongoingMatch[1]);
+                const currentYear = new Date().getFullYear();
+                return searchYear >= startYear && searchYear <= currentYear;
+            }
+            
+            return false;
         }
 
-        // Inventory display logic
-        async function displayInventory(query = '') {
-            const container = document.getElementById('inventoryTableContainer');
-            const viewMode = document.querySelector('input[name="inventoryView"]:checked').value;
-            const inStockOnly = document.getElementById('inventoryInStockOnly').checked;
+        // Helper function to check if item is in stock
+        function isInStock(qty) {
+            if (!qty) return false; // null, undefined, or empty string
+            const qtyStr = qty.toString().trim();
+            if (qtyStr === '' || qtyStr === '0') return false;
+            return true; // Anything else (emojis, numbers > 0, text) = in stock
+        }
 
+        // Display Inventory Table
+        function displayInventory(filterText = '') {
             const transaction = db.transaction([INVENTORY_STORE], 'readonly');
             const store = transaction.objectStore(INVENTORY_STORE);
             const request = store.getAll();
-
+            
             request.onsuccess = () => {
                 let data = request.result;
-
-                // Apply search filter
-                if (query.trim()) {
-                    const terms = query.toLowerCase().split(/\s+/);
+                
+                if (filterText) {
+                    const searchTerms = filterText.toLowerCase().trim().split(/\s+/);
                     data = data.filter(item => {
-                        return terms.every(term => {
-                            return Object.values(item).some(val =>
+                        return searchTerms.every(term => {
+                            const yearMatch = term.match(/^\d{4}$/);
+                            if (yearMatch) {
+                                const searchYear = parseInt(term);
+                                return Object.values(item).some(val => {
+                                    if (!val) return false;
+                                    const valStr = val.toString().toLowerCase();
+                                    return valStr.includes(term) || yearMatchesRange(searchYear, valStr);
+                                });
+                            }
+                            return Object.values(item).some(val => 
                                 val && val.toString().toLowerCase().includes(term)
                             );
                         });
                     });
                 }
-
-                // Apply in-stock filter
+                
+                // Filter by in-stock if checkbox is checked
+                const inStockOnly = document.getElementById('inventoryInStockOnly').checked;
                 if (inStockOnly) {
-                    data = data.filter(item => item.Qty && parseInt(item.Qty) > 0);
+                    data = data.filter(item => isInStock(item.Qty));
                 }
-
+                
+                const container = document.getElementById('inventoryTableContainer');
+                
+                if (data.length === 0) {
+                    container.innerHTML = '<div class="no-results">No inventory data. Import a CSV file to get started.</div>';
+                    return;
+                }
+                
+                // Check which view is selected
+                const viewMode = document.querySelector('input[name="inventoryView"]:checked').value;
+                
                 if (viewMode === 'grouped') {
                     displayGroupedInventory(data, container);
                 } else {
@@ -765,7 +747,8 @@
                 }
             };
         }
-
+        
+        // Display grouped inventory (by Product_Name)
         function displayGroupedInventory(data, container) {
             // Group by Product_Name
             const grouped = {};
@@ -822,56 +805,386 @@
                 
                 // Add expandable vehicle list row
                 html += `<tr id="vehicleList${index}" style="display: none;"><td colspan="5">`;
-                html += '<div style="background: #f9f9f9; padding: 15px; border-radius: 5px;">';
-                html += '<h4 style="color: hotpink; margin: 0 0 10px 0;">Compatible Vehicles:</h4>';
-                html += '<table style="width: 100%; border-collapse: collapse;">';
-                html += '<thead><tr><th style="width: 30%;">Make</th><th style="width: 30%;">Model</th><th style="width: 30%;">Year(s)</th><th style="width: 10%;">Actions</th></tr></thead>';
-                html += '<tbody>';
-                
-                group.vehicles.forEach((vehicle, vIndex) => {
-                    const vid = group.ids[vIndex];
-                    html += '<tr>';
-                    html += `<td contenteditable="true" data-id="${vid}" data-field="Make">${vehicle.make || ''}</td>`;
-                    html += `<td contenteditable="true" data-id="${vid}" data-field="Model">${vehicle.model || ''}</td>`;
-                    html += `<td contenteditable="true" data-id="${vid}" data-field="Year(s)">${vehicle.year || ''}</td>`;
-                    html += `<td><button onclick="deleteVehicleFromGroup(${vid}, ${index})" style="background: red; color: white; border: none; padding: 2px 6px; border-radius: 3px; cursor: pointer;">Delete</button></td>`;
-                    html += '</tr>';
+             html += '<div style="background: #f9f9f9; padding: 10px; border-left: 3px solid hotpink;"><strong>Compatible with:</strong>';
+html += '<table style="width:100%; margin-top:10px;"><tr><th>Make</th><th>Model</th><th>Year</th></tr>';
+group.vehicles.forEach((v, vIndex) => {
+    const vehicleId = group.ids[vIndex];
+    html += `<tr><td contenteditable="true" data-id="${vehicleId}" data-field="Make">${v.make}</td>`;
+    html += `<td contenteditable="true" data-id="${vehicleId}" data-field="Model">${v.model}</td>`;
+    html += `<td contenteditable="true" data-id="${vehicleId}" data-field="Year(s)">${v.year}</td></tr>`;
+});
+html += '</table>';
+html += `<button onclick="addVehicleToGroup(${index}, '${group.product.replace(/'/g, "\\'")}')" style="margin-top:10px; padding:5px 10px; background:hotpink; color:white; border:none; border-radius:3px; cursor:pointer;">+ Add Vehicle</button>`;
+html += '</div></td></tr>';            });
+            
+            html += '</tbody></table>';
+            html += `<div style="margin-top: 10px; color: #666;">Showing ${groupedArray.length} unique keys (${data.length} vehicles total)</div>`;
+            container.innerHTML = html;
+        }
+        
+        // Display vehicle inventory (ungrouped)
+        function displayVehicleInventory(data, container) {
+            const headers = ['Make', 'Model', 'Year(s)', 'Product_Name', 'Type', 'Qty', 'Notes'];
+            
+            // Apply sorting if sort state exists
+            if (window.inventorySortColumn) {
+                data = sortData(data, window.inventorySortColumn, window.inventorySortDirection);
+            }
+            
+            let html = '<table id="inventoryTable"><thead><tr>';
+            html += '<th style="width: 40px;"><input type="checkbox" id="selectAllInventory" onchange="toggleSelectAll(\'inventory\')"></th>';
+            headers.forEach(h => {
+                const displayName = h === 'Product_Name' ? 'Product Name' : h;
+                const sortClass = window.inventorySortColumn === h ? 
+                    (window.inventorySortDirection === 'asc' ? 'sorted-asc' : 'sorted-desc') : 'sortable';
+                html += `<th class="${sortClass}" onclick="sortInventoryTable('${h}')">${displayName}</th>`;
+            });
+            html += '</tr></thead><tbody>';
+            
+            data.forEach(row => {
+                html += '<tr data-row-id="' + row.id + '">';
+                html += '<td><input type="checkbox" class="row-checkbox" value="' + row.id + '"></td>';
+                headers.forEach(h => {
+                    html += `<td contenteditable="true" data-field="${h}">${row[h] || ''}</td>`;
                 });
-                
-                html += '</tbody></table>';
-                html += `<button onclick="addNewVehicleToGroup('${encodeURIComponent(group.product)}', ${index})" style="margin-top: 10px; background: hotpink; color: black; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer;">+ Add New Vehicle</button>`;
-                html += '</div>';
-                html += '</td></tr>';
+                html += '</tr>';
             });
             
             html += '</tbody></table>';
+            html += `<div style="margin-top: 10px; color: #666;">Showing ${data.length} vehicle entries</div>`;
             container.innerHTML = html;
         }
+        
+        // Toggle vehicle list in grouped view
+function addVehicleToGroup(groupIndex, productName) {
+    const make = prompt('Enter Make:');
+    if (!make) return;
+    const model = prompt('Enter Model:');
+    if (!model) return;
+    const year = prompt('Enter Year(s):');
+    if (!year) return;
+    
+    const transaction = db.transaction([INVENTORY_STORE], 'readwrite');
+    const store = transaction.objectStore(INVENTORY_STORE);
+    
+    const newItem = {
+        Make: make.toUpperCase(),
+        Model: model,
+        'Year(s)': year,
+        Product_Name: productName,
+        Type: '',
+        Qty: '0',
+        Notes: ''
+    };
+    
+    store.add(newItem);
+    
+    transaction.oncomplete = () => {
+        displayInventory();
+    };
+}
 
-        function displayVehicleInventory(data, container) {
-            let html = '<table><thead><tr>';
-            html += '<th><input type="checkbox" id="selectAllInventory" onchange="toggleSelectAll()"></th>';
-            html += '<th>Make</th><th>Model</th><th>Year(s)</th><th>Product Name</th><th>Type</th><th>Qty</th><th>Notes</th>';
-            html += '</tr></thead><tbody>';
+function toggleVehicleList(index) {
+        function toggleVehicleList(index) {
+            const row = document.getElementById('vehicleList' + index);
+            if (row) {
+                row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+            }
+        }
 
-            data.forEach(item => {
+        // Display Vehicle Reference Table
+        function displayVehicles(filterText = '') {
+            const transaction = db.transaction([VEHICLE_STORE], 'readonly');
+            const store = transaction.objectStore(VEHICLE_STORE);
+            const request = store.getAll();
+            
+            request.onsuccess = () => {
+                let data = request.result;
+                
+                if (filterText) {
+                    const searchTerms = filterText.toLowerCase().trim().split(/\s+/);
+                    data = data.filter(item => {
+                        return searchTerms.every(term => {
+                            const yearMatch = term.match(/^\d{4}$/);
+                            if (yearMatch) {
+                                const searchYear = parseInt(term);
+                                return Object.values(item).some(val => {
+                                    if (!val) return false;
+                                    const valStr = val.toString().toLowerCase();
+                                    return valStr.includes(term) || yearMatchesRange(searchYear, valStr);
+                                });
+                            }
+                            return Object.values(item).some(val => 
+                                val && val.toString().toLowerCase().includes(term)
+                            );
+                        });
+                    });
+                }
+                
+                const container = document.getElementById('vehicleTableContainer');
+                
+                if (data.length === 0) {
+                    container.innerHTML = '<div class="no-results">No vehicle data. Import a CSV file to get started.</div>';
+                    return;
+                }
+                
+                const headers = ['Make', 'Model', 'Year_Range', 'Product_Name', 'Qty', 'Notes'];
+                let html = '<table><thead><tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr></thead><tbody>';
+                
+                data.forEach(row => {
+                    html += '<tr data-row-id="' + row.id + '">' + headers.map(h => 
+                        `<td contenteditable="true" data-field="${h}">${row[h] || ''}</td>`
+                    ).join('') + '</tr>';
+                });
+                
+                html += '</tbody></table>';
+                container.innerHTML = html;
+            };
+        }
+
+        // Quick Search - searches INVENTORY database
+        function performQuickSearch() {
+            const query = document.getElementById('searchInput').value.toLowerCase().trim();
+            
+            if (!query) {
+                document.getElementById('searchResults').innerHTML = '<div class="no-results">Enter a vehicle to find compatible keys...</div>';
+                return;
+            }
+            
+            const searchTerms = query.split(/\s+/);
+            
+            // Search INVENTORY database
+            const inventoryTransaction = db.transaction([INVENTORY_STORE], 'readonly');
+            const inventoryStore = inventoryTransaction.objectStore(INVENTORY_STORE);
+            const inventoryRequest = inventoryStore.getAll();
+            
+            inventoryRequest.onsuccess = () => {
+                let items = inventoryRequest.result.filter(item => {
+                    return searchTerms.every(term => {
+                        const yearMatch = term.match(/^\d{4}$/);
+                        if (yearMatch) {
+                            const searchYear = parseInt(term);
+                            return Object.values(item).some(val => {
+                                if (!val) return false;
+                                const valStr = val.toString().toLowerCase();
+                                return valStr.includes(term) || yearMatchesRange(searchYear, valStr);
+                            });
+                        }
+                        return Object.values(item).some(val => 
+                            val && val.toString().toLowerCase().includes(term)
+                        );
+                    });
+                });
+                
+                // Filter by in-stock if checkbox is checked
+                const inStockOnly = document.getElementById('inStockOnly').checked;
+                if (inStockOnly) {
+                    items = items.filter(item => isInStock(item.Qty));
+                }
+                
+                if (items.length === 0) {
+                    document.getElementById('searchResults').innerHTML = '<div class="no-results">No items found in inventory.</div>';
+                    return;
+                }
+                
+                // If only ONE result, show full details with compatibility
+                if (items.length === 1) {
+                    const matchedItem = items[0];
+                    const keyName = matchedItem.Product_Name || 'Unknown Key';
+                    
+                    // Get all items that use this same key
+                    const allItemsWithKey = inventoryRequest.result.filter(item => 
+                        (item.Product_Name || 'Unknown Key') === keyName
+                    );
+                    
+                    displaySearchResult(matchedItem, allItemsWithKey);
+                } else {
+                    // Multiple results - show simple clickable table
+                    displayMultipleResults(items, inventoryRequest.result);
+                }
+            };
+        }
+
+        // Display multiple results as clickable table
+        function displayMultipleResults(items, allInventory) {
+            const container = document.getElementById('searchResults');
+            
+            let html = `
+                <div style="margin-bottom: 10px; color: #666;">
+                    Found ${items.length} matches. Click a row to see compatible vehicles.
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Make</th>
+                            <th>Model</th>
+                            <th>Year(s)</th>
+                            <th>Product Name</th>
+                            <th>Type</th>
+                            <th>Qty</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            
+            items.forEach((item, index) => {
                 const qtyClass = isInStock(item.Qty) ? 'stock-indicator' : 'no-stock';
-                html += `<tr data-row-id="${item.id}">`;
-                html += `<td><input type="checkbox" class="row-checkbox" value="${item.id}"></td>`;
-                html += `<td contenteditable="true">${item.Make || ''}</td>`;
-                html += `<td contenteditable="true">${item.Model || ''}</td>`;
-                html += `<td contenteditable="true">${item['Year(s)'] || ''}</td>`;
-                html += `<td contenteditable="true">${item.Product_Name || ''}</td>`;
-                html += `<td contenteditable="true">${item.Type || ''}</td>`;
-                html += `<td contenteditable="true" class="${qtyClass}">${item.Qty || '0'}</td>`;
-                html += `<td contenteditable="true">${item.Notes || ''}</td>`;
-                html += '</tr>';
+                html += `
+                    <tr onclick="showItemDetails(${index})" style="cursor: pointer;" onmouseover="this.style.backgroundColor='#f0f0f0'" onmouseout="this.style.backgroundColor=''">
+                        <td>${item.Make || ''}</td>
+                        <td>${item.Model || ''}</td>
+                        <td>${item['Year(s)'] || ''}</td>
+                        <td>${item.Product_Name || ''}</td>
+                        <td>${item.Type || ''}</td>
+                        <td class="${qtyClass}">${item.Qty || 0}</td>
+                        <td style="color: hotpink;">▼</td>
+                    </tr>
+                `;
             });
+            
+            html += `
+                    </tbody>
+                </table>
+                <div id="itemDetails" style="margin-top: 20px;"></div>
+            `;
+            
+            container.innerHTML = html;
+            
+            // Store items in global variable so showItemDetails can access them
+            window.currentSearchItems = items;
+            window.currentAllInventory = allInventory;
+        }
 
-            html += '</tbody></table>';
+        // Show details for a specific item from multiple results
+        function showItemDetails(index) {
+            const item = window.currentSearchItems[index];
+            const keyName = item.Product_Name || 'Unknown Key';
+            
+            // Get all items that use this same key
+            const allItemsWithKey = window.currentAllInventory.filter(i => 
+                (i.Product_Name || 'Unknown Key') === keyName
+            );
+            
+            // Display in the details div
+            const detailsContainer = document.getElementById('itemDetails');
+            const qty = item.Qty || 0;
+            const qtyClass = parseInt(qty) > 0 ? 'stock-indicator' : 'no-stock';
+            
+            let html = `
+                <div style="border-top: 3px solid hotpink; padding-top: 15px;">
+                    <h4 style="color: hotpink; margin-bottom: 10px;">Selected Item Details:</h4>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Make</th>
+                                <th>Model</th>
+                                <th>Year(s)</th>
+                                <th>Product Name</th>
+                                <th>Type</th>
+                                <th>Qty</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>${item.Make || ''}</td>
+                                <td>${item.Model || ''}</td>
+                                <td>${item['Year(s)'] || ''}</td>
+                                <td>${item.Product_Name || ''}</td>
+                                <td>${item.Type || ''}</td>
+                                <td class="${qtyClass}">${qty}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+            `;
+            
+            // Show notes if they exist
+            if (item.Notes && item.Notes.trim()) {
+                html += `
+                    <div class="notes-display">
+                        <strong>Notes:</strong> ${item.Notes}
+                    </div>
+                `;
+            }
+            
+            // Add compatible vehicles list
+            if (allItemsWithKey.length > 0) {
+                html += `
+                    <div class="compatible-list">
+                        <h4>Also compatible with ${allItemsWithKey.length} vehicle(s):</h4>
+                        <ul>
+                            ${allItemsWithKey.map(v => 
+                                `<li>${v['Year(s)'] || 'N/A'} ${v.Make} ${v.Model}</li>`
+                            ).join('')}
+                        </ul>
+                    </div>
+                `;
+            }
+            
+            html += '</div>';
+            detailsContainer.innerHTML = html;
+            
+            // Scroll to details
+            detailsContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        function displaySearchResult(item, allCompatibleItems) {
+            const container = document.getElementById('searchResults');
+            const qty = item.Qty || 0;
+            const qtyClass = parseInt(qty) > 0 ? 'stock-indicator' : 'no-stock';
+            
+            let html = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Make</th>
+                            <th>Model</th>
+                            <th>Year(s)</th>
+                            <th>Product Name</th>
+                            <th>Type</th>
+                            <th>Qty</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>${item.Make || ''}</td>
+                            <td>${item.Model || ''}</td>
+                            <td>${item['Year(s)'] || ''}</td>
+                            <td>${item.Product_Name || ''}</td>
+                            <td>${item.Type || ''}</td>
+                            <td class="${qtyClass}">${qty}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            `;
+            
+            // Show notes if they exist
+            if (item.Notes && item.Notes.trim()) {
+                html += `
+                    <div class="notes-display">
+                        <strong>Notes:</strong> ${item.Notes}
+                    </div>
+                `;
+            }
+            
+            // Add compatible vehicles list
+            if (allCompatibleItems.length > 0) {
+                html += `
+                    <div class="compatible-list">
+                        <h4>Also compatible with ${allCompatibleItems.length} vehicle(s):</h4>
+                        <ul>
+                            ${allCompatibleItems.map(v => 
+                                `<li>${v['Year(s)'] || 'N/A'} ${v.Make} ${v.Model}</li>`
+                            ).join('')}
+                        </ul>
+                    </div>
+                `;
+            }
+            
             container.innerHTML = html;
         }
 
+        // Filter functions
         function filterInventory() {
             const query = document.getElementById('inventorySearchInput').value;
             displayInventory(query);
@@ -1038,23 +1351,34 @@
                         };
                     });
                 });
-                
-                // Save edits to vehicle compatibility list
-                const vehicleCells = document.querySelectorAll('#inventoryTableContainer td[data-id][contenteditable]');
-                vehicleCells.forEach(cell => {
-                    const id = parseInt(cell.getAttribute('data-id'));
-                    const field = cell.getAttribute('data-field');
-                    const value = cell.textContent.trim();
-                    
-                    const getRequest = store.get(id);
-                    getRequest.onsuccess = () => {
-                        const item = getRequest.result;
-                        if (item) {
-                            item[field] = value;
-                            store.put(item);
-                        }
-                    };
-                });
+// Save edits to vehicle compatibility list
+    const vehicleCells = document.querySelectorAll('#inventoryTableContainer td[data-id][contenteditable]');
+    vehicleCells.forEach(cell => {
+        const id = parseInt(cell.getAttribute('data-id'));
+        const field = cell.getAttribute('data-field');
+        const value = cell.textContent.trim();
+        
+        const getRequest = store.get(id);
+        getRequest.onsuccess = () => {
+            const item = getRequest.result;
+            if (item) {
+                item[field] = value;
+                store.put(item);
+            }
+        };
+    });
+```
+
+So the structure becomes:
+```
+if (viewMode === 'grouped') {
+    // existing row save code
+    
+    // NEW: vehicle compatibility save code HERE
+    
+} else {
+    // vehicle view code
+}
             } else {
                 // In vehicle view, save individual rows
                 const rows = document.querySelectorAll('#inventoryTableContainer tbody tr[data-row-id]');
@@ -1263,18 +1587,44 @@
             };
         }
 
-        function isInStock(qty) {
-            return qty && parseInt(qty) > 0;
+        // Clear All Inventory Data
+        function clearAllInventory() {
+            if (!confirm('⚠️ WARNING: This will delete ALL inventory data!\n\nAre you sure you want to continue?')) {
+                return;
+            }
+            
+            const transaction = db.transaction([INVENTORY_STORE], 'readwrite');
+            const store = transaction.objectStore(INVENTORY_STORE);
+            const request = store.clear();
+            
+            request.onsuccess = () => {
+                alert('All inventory data has been cleared.');
+                displayInventory();
+            };
+            
+            request.onerror = () => {
+                alert('Error clearing inventory data.');
+            };
         }
 
-        function yearMatchesRange(searchYear, rangeStr) {
-            if (!rangeStr) return false;
-            const parts = rangeStr.split('-').map(p => parseInt(p.trim()));
-            if (parts.length === 1) return parts[0] === searchYear;
-            if (parts.length === 2) {
-                return searchYear >= parts[0] && searchYear <= parts[1];
+        // Clear All Vehicle Reference Data
+        function clearAllVehicles() {
+            if (!confirm('⚠️ WARNING: This will delete ALL vehicle reference data!\n\nAre you sure you want to continue?')) {
+                return;
             }
-            return false;
+            
+            const transaction = db.transaction([VEHICLE_STORE], 'readwrite');
+            const store = transaction.objectStore(VEHICLE_STORE);
+            const request = store.clear();
+            
+            request.onsuccess = () => {
+                alert('All vehicle reference data has been cleared.');
+                displayVehicles();
+            };
+            
+            request.onerror = () => {
+                alert('Error clearing vehicle reference data.');
+            };
         }
 
         // Nuclear option - delete entire database and reload
@@ -1320,56 +1670,6 @@
                 vehicleBtn.style.display = 'none';
             }
         });
-
-        function toggleVehicleList(index) {
-            const row = document.getElementById(`vehicleList${index}`);
-            const button = document.querySelector(`tr[data-group-index="${index}"] .expand-btn`);
-            if (row.style.display === 'none' || row.style.display === '') {
-                row.style.display = 'table-row';
-                button.innerHTML = button.innerHTML.replace('▼', '▲');
-            } else {
-                row.style.display = 'none';
-                button.innerHTML = button.innerHTML.replace('▲', '▼');
-            }
-        }
-
-        function addNewVehicleToGroup(productName, groupIndex) {
-            productName = decodeURIComponent(productName);
-            const transaction = db.transaction([INVENTORY_STORE], 'readwrite');
-            const store = transaction.objectStore(INVENTORY_STORE);
-            
-            // Get one existing item to copy shared fields (Qty, Notes, Type)
-            const idsStr = document.querySelector(`tr[data-group-index="${groupIndex}"] td[data-field="Product_Name"]`).getAttribute('data-ids');
-            const firstId = parseInt(idsStr.split(',')[0]);
-            
-            const getRequest = store.get(firstId);
-            getRequest.onsuccess = () => {
-                const existing = getRequest.result || {};
-                const newItem = {
-                    Make: '',
-                    Model: '',
-                    'Year(s)': '',
-                    Product_Name: productName,
-                    Type: existing.Type || '',
-                    Qty: existing.Qty || '0',
-                    Notes: existing.Notes || ''
-                };
-                
-                store.add(newItem).onsuccess = () => {
-                    displayInventory(); // Refresh the entire inventory view
-                };
-            };
-        }
-
-        function deleteVehicleFromGroup(id, groupIndex) {
-            if (!confirm('Delete this vehicle compatibility entry?')) return;
-            
-            const transaction = db.transaction([INVENTORY_STORE], 'readwrite');
-            const store = transaction.objectStore(INVENTORY_STORE);
-            store.delete(id).onsuccess = () => {
-                displayInventory(); // Refresh after deletion
-            };
-        }
 
         // Initialize on page load
         window.onload = async () => {
