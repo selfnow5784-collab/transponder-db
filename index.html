@@ -424,6 +424,16 @@
         // Keep expanded groups across renders (store safe keys)
         window.inventoryExpanded = window.inventoryExpanded || new Set();
 
+        // Utility: normalize product name for grouping/comparison
+        function normalizeProductName(s) {
+            if (!s && s !== 0) return '';
+            return s.toString().trim().replace(/\s+/g, ' ').toLowerCase();
+        }
+
+        function safeKeyFromNormalized(normalized) {
+            return (normalized || 'unknown_product').replace(/[^a-z0-9_\-]/gi, '_').slice(0, 80);
+        }
+
         // Initialize IndexedDB
         function initDB() {
             return new Promise((resolve, reject) => {
@@ -478,6 +488,33 @@
             } else if (tab === 'data') {
                 displayFileList();
             }
+        }
+
+        // Shared inventory filter helper used by display and export
+        function matchesInventoryFilter(item, filterText) {
+            if (!item) return false;
+            const f = (filterText || '').toLowerCase().trim();
+            const terms = f ? f.split(/\s+/) : [];
+            const inStockOnly = document.getElementById('inventoryInStockOnly')?.checked;
+
+            // in-stock check
+            if (inStockOnly && !isInStock(item.Qty)) return false;
+
+            if (terms.length === 0) return true;
+
+            return terms.every(term => {
+                const yearMatch = term.match(/^\d{4}$/);
+                if (yearMatch) {
+                    const searchYear = parseInt(term);
+                    return Object.values(item).some(val => {
+                        if (!val) return false;
+                        const valStr = val.toString().toLowerCase();
+                        return valStr.includes(term) || yearMatchesRange(searchYear, valStr);
+                    });
+                }
+                // normal text term
+                return Object.values(item).some(val => val && val.toString().toLowerCase().includes(term));
+            });
         }
 
         // Import Inventory CSV with flexible column mapping
@@ -729,31 +766,8 @@
             request.onsuccess = () => {
                 let data = request.result || [];
                 
-                if (filterText) {
-                    const searchTerms = filterText.toLowerCase().trim().split(/\s+/);
-                    data = data.filter(item => {
-                        return searchTerms.every(term => {
-                            const yearMatch = term.match(/^\d{4}$/);
-                            if (yearMatch) {
-                                const searchYear = parseInt(term);
-                                return Object.values(item).some(val => {
-                                    if (!val) return false;
-                                    const valStr = val.toString().toLowerCase();
-                                    return valStr.includes(term) || yearMatchesRange(searchYear, valStr);
-                                });
-                            }
-                            return Object.values(item).some(val => 
-                                val && val.toString().toLowerCase().includes(term)
-                            );
-                        });
-                    });
-                }
-                
-                // Filter by in-stock if checkbox is checked
-                const inStockOnly = document.getElementById('inventoryInStockOnly')?.checked;
-                if (inStockOnly) {
-                    data = data.filter(item => isInStock(item.Qty));
-                }
+                // apply filtering using shared helper
+                data = data.filter(item => matchesInventoryFilter(item, filterText));
                 
                 const container = document.getElementById('inventoryTableContainer');
                 
@@ -773,20 +787,21 @@
             };
         }
         
-        // Display grouped inventory (by Product_Name)
+        // Display grouped inventory (by normalized Product_Name)
         function displayGroupedInventory(data, container) {
-            // Group by Product_Name
+            // Group by normalized Product_Name
             const grouped = {};
             data.forEach(item => {
-                const key = item.Product_Name || 'Unknown Product';
+                const normalized = normalizeProductName(item.Product_Name || '');
+                const key = normalized || 'unknown_product';
                 if (!grouped[key]) {
                     grouped[key] = {
-                        product: key,
-                        qty: item.Qty,
-                        notes: item.Notes,
-                        type: item.Type,
+                        productDisplay: item.Product_Name || 'Unknown Product',
+                        normalized: normalized,
                         vehicles: [],
-                        ids: []
+                        ids: [],
+                        qty: 0,
+                        notes: ''
                     };
                 }
                 grouped[key].vehicles.push({
@@ -795,6 +810,8 @@
                     year: item['Year(s)']
                 });
                 grouped[key].ids.push(item.id);
+                grouped[key].qty = (grouped[key].qty || 0) + (parseInt(item.Qty) || 0);
+                if (item.Notes) grouped[key].notes = grouped[key].notes ? grouped[key].notes + '\n' + item.Notes : item.Notes;
             });
             
             const groupedArray = Object.values(grouped);
@@ -802,8 +819,8 @@
             // Apply sorting if exists
             if (window.inventorySortColumn) {
                 groupedArray.sort((a, b) => {
-                    let aVal = a.product || '';
-                    let bVal = b.product || '';
+                    let aVal = a.productDisplay || '';
+                    let bVal = b.productDisplay || '';
                     if (aVal < bVal) return window.inventorySortDirection === 'asc' ? -1 : 1;
                     if (aVal > bVal) return window.inventorySortDirection === 'asc' ? 1 : -1;
                     return 0;
@@ -818,34 +835,33 @@
             html += '<th>Notes</th>';
             html += '</tr></thead><tbody>';
             
-            groupedArray.forEach((group, index) => {
+            groupedArray.forEach((group) => {
                 const qtyClass = isInStock(group.qty) ? 'stock-indicator' : 'no-stock';
-                // create a safe key to persist expansion across sorting/re-renders
-                const safeKey = (group.product || 'Unknown_Product').replace(/[^a-z0-9_\-]/gi, '_').slice(0, 80);
+                const safeKey = safeKeyFromNormalized(group.normalized);
                 const expanded = window.inventoryExpanded.has(safeKey);
                 const arrow = expanded ? '▾' : '▸';
                 html += `<tr data-group-key="${safeKey}">`;
                 html += `<td><input type="checkbox" class="row-checkbox" data-ids="${group.ids.join(',')}"></td>`;
-                html += `<td contenteditable="true" data-field="Product_Name" data-ids="${group.ids.join(',')}">${group.product}</td>`;
+                html += `<td contenteditable="true" data-field="Product_Name" data-ids="${group.ids.join(',')}">${escapeHtml(group.productDisplay)}</td>`;
                 // compact expand control with arrow + count
                 html += `<td style="text-align: center;"><button type="button" class="expand-btn" data-count="${group.vehicles.length}" onclick="toggleVehicleList('${safeKey}')" aria-expanded="${expanded ? 'true' : 'false'}" aria-label="Toggle vehicle list" title="${group.vehicles.length} vehicles"><span class="arrow">${arrow}</span><span class="count">${group.vehicles.length}</span></button></td>`;
                 html += `<td contenteditable="true" class="${qtyClass}" data-field="Qty" data-ids="${group.ids.join(',')}">${group.qty || 0}</td>`;
-                html += `<td contenteditable="true" data-field="Notes" data-ids="${group.ids.join(',')}">${group.notes || ''}</td>`;
+                html += `<td contenteditable="true" data-field="Notes" data-ids="${group.ids.join(',')}">${escapeHtml(group.notes || '')}</td>`;
                 html += '</tr>';
                 
                 // Add expandable vehicle list row
-                html += `<tr id="vehicleList-${safeKey}" style="display: ${expanded ? 'table-row' : 'none'};"><td colspan="5">`;
+                html += `<tr id="vehicleList-${safeKey}" style="display: ${expanded ? 'table-row' : 'none'};"></td><td colspan="5">`;
                 html += '<div style="background: #f9f9f9; padding: 10px; border-left: 3px solid hotpink;"><strong>Compatible with:</strong>';
                 html += '<table style="width:100%; margin-top:10px;"><tr><th>Make</th><th>Model</th><th>Year</th></tr>';
                 group.vehicles.forEach((v, vIndex) => {
                     const vehicleId = group.ids[vIndex];
-                    html += `<tr><td contenteditable="true" data-id="${vehicleId}" data-field="Make">${v.make}</td>`;
-                    html += `<td contenteditable="true" data-id="${vehicleId}" data-field="Model">${v.model}</td>`;
-                    html += `<td contenteditable="true" data-id="${vehicleId}" data-field="Year(s)">${v.year}</td></tr>`;
+                    html += `<tr><td contenteditable="true" data-id="${vehicleId}" data-field="Make">${escapeHtml(v.make)}</td>`;
+                    html += `<td contenteditable="true" data-id="${vehicleId}" data-field="Model">${escapeHtml(v.model)}</td>`;
+                    html += `<td contenteditable="true" data-id="${vehicleId}" data-field="Year(s)">${escapeHtml(v.year)}</td></tr>`;
                 });
                 html += '</table>';
-                // pass the product name to addVehicleToGroup; escape single-quotes
-                const escapedProduct = (group.product || '').replace(/'/g, "\\'");
+                // pass the product name to addVehicleToGroup; escape single-quotes for inline JS
+                const escapedProduct = (group.productDisplay || '').replace(/'/g, "\\'");
                 html += `<button type="button" onclick="addVehicleToGroup('${safeKey}','${escapedProduct}')" style="margin-top:10px; padding:5px 10px; background:hotpink; color:white; border:none; border-radius:4px; cursor: pointer;">+ Add Vehicle</button>`;
                 html += '</div></td></tr>';
             });
@@ -878,7 +894,7 @@
                 html += '<tr data-row-id="' + row.id + '">';
                 html += '<td><input type="checkbox" class="row-checkbox" value="' + row.id + '"></td>';
                 headers.forEach(h => {
-                    html += `<td contenteditable="true" data-field="${h}">${row[h] || ''}</td>`;
+                    html += `<td contenteditable="true" data-field="${h}">${escapeHtml(row[h] || '')}</td>`;
                 });
                 html += '</tr>';
             });
@@ -889,7 +905,7 @@
         }
         
         // Add vehicle to group
-        // now accepts safeKey and productName (safeKey is used only for locating UI rows if needed)
+        // accepts safeKey and productName (safeKey is used to preserve expansion state)
         function addVehicleToGroup(safeKey, productName) {
             const make = prompt('Enter Make:');
             if (!make) return;
@@ -911,10 +927,17 @@
                 Notes: ''
             };
             
-            store.add(newItem);
+            const addRequest = store.add(newItem);
+            addRequest.onsuccess = () => {
+                // persist expansion for this group so the user sees the new entry immediately after re-render
+                window.inventoryExpanded.add(safeKey);
+            };
             
             transaction.oncomplete = () => {
-                displayInventory();
+                displayInventory(document.getElementById('inventorySearchInput')?.value || '');
+            };
+            transaction.onerror = () => {
+                alert('Error adding vehicle to group');
             };
         }
 
@@ -981,7 +1004,7 @@
                 
                 data.forEach(row => {
                     html += '<tr data-row-id="' + row.id + '">' + headers.map(h => 
-                        `<td contenteditable="true" data-field="${h}">${row[h] || ''}</td>`
+                        `<td contenteditable="true" data-field="${h}">${escapeHtml(row[h] || '')}</td>`
                     ).join('') + '</tr>';
                 });
                 
@@ -992,7 +1015,8 @@
 
         // Quick Search - searches INVENTORY database
         function performQuickSearch() {
-            const query = document.getElementById('searchInput').value.toLowerCase().trim();
+            const queryRaw = document.getElementById('searchInput').value.trim();
+            const query = queryRaw.toLowerCase();
             
             if (!query) {
                 document.getElementById('searchResults').innerHTML = '<div class="no-results">Enter a vehicle to find compatible keys...</div>';
@@ -1007,7 +1031,14 @@
             const inventoryRequest = inventoryStore.getAll();
             
             inventoryRequest.onsuccess = () => {
-                let items = inventoryRequest.result.filter(item => {
+                let allItems = inventoryRequest.result || [];
+                // apply inStock filter if set
+                const inStockOnly = document.getElementById('inStockOnly')?.checked;
+                if (inStockOnly) {
+                    allItems = allItems.filter(it => isInStock(it.Qty));
+                }
+
+                const items = allItems.filter(item => {
                     return searchTerms.every(term => {
                         const yearMatch = term.match(/^\d{4}$/);
                         if (yearMatch) {
@@ -1024,32 +1055,23 @@
                     });
                 });
                 
-                // Filter by in-stock if checkbox is checked
-                const inStockOnly = document.getElementById('inStockOnly')?.checked;
-                if (inStockOnly) {
-                    items = items.filter(item => isInStock(item.Qty));
-                }
-                
                 if (items.length === 0) {
                     document.getElementById('searchResults').innerHTML = '<div class="no-results">No items found in inventory.</div>';
                     return;
                 }
                 
-                // If only ONE result, show full details with compatibility
+                // If only ONE result, show full details with compatibility (all rows that share Product_Name)
                 if (items.length === 1) {
                     const matchedItem = items[0];
                     const keyName = matchedItem.Product_Name || 'Unknown Key';
-                    
-                    // Get all items that use this same key
-                    const allItemsWithKey = inventoryRequest.result.filter(item => 
-                        (item.Product_Name || 'Unknown Key') === keyName
-                    );
-                    
+                    const normalizedKey = normalizeProductName(keyName);
+                    // compute compatibility list from all inventory rows with same normalized Product_Name
+                    const allItemsWithKey = inventoryRequest.result.filter(item => normalizeProductName(item.Product_Name) === normalizedKey);
                     displaySearchResult(matchedItem, allItemsWithKey);
                 } else {
                     // For multiple results show a compact list
                     const html = `<table><thead><tr><th>Product</th><th>Make</th><th>Model</th><th>Year</th><th>Qty</th></tr></thead><tbody>` +
-                        items.map(it => `<tr data-id="${it.id}"><td>${it.Product_Name || ''}</td><td>${it.Make || ''}</td><td>${it.Model || ''}</td><td>${it['Year(s)'] || ''}</td><td>${it.Qty || ''}</td></tr>`).join('') +
+                        items.map(it => `<tr data-id="${it.id}"><td>${escapeHtml(it.Product_Name || '')}</td><td>${escapeHtml(it.Make || '')}</td><td>${escapeHtml(it.Model || '')}</td><td>${escapeHtml(it['Year(s)'] || '')}</td><td>${escapeHtml(it.Qty || '')}</td></tr>`).join('') +
                         `</tbody></table>`;
                     document.getElementById('searchResults').innerHTML = html;
                 }
@@ -1059,19 +1081,79 @@
         // Display search result for a single matched item
         function displaySearchResult(item, allItemsWithKey) {
             const container = document.getElementById('searchResults');
-            let html = `<div class="compatible-list"><h4>${item.Product_Name || 'Unknown Key'}</h4>`;
-            html += `<div><strong>Type:</strong> ${item.Type || ''} <strong style="margin-left:20px;">Qty:</strong> ${item.Qty || 0}</div>`;
-            if (item.Notes) html += `<div class="notes-display"><strong>Notes:</strong> ${item.Notes}</div>`;
+            let html = `<div class="compatible-list"><h4>${escapeHtml(item.Product_Name || 'Unknown Key')}</n`+">";
+            // above line uses a safe concat to avoid template confusion
+            html = `<div class=\"compatible-list\"><h4>${escapeHtml(item.Product_Name || 'Unknown Key')}</h4>`;
+            html += `<div><strong>Type:</strong> ${escapeHtml(item.Type || '')} <strong style=\"margin-left:20px;\">Qty:</strong> ${escapeHtml(item.Qty || 0)}</div>`;
+            if (item.Notes) html += `<div class="notes-display"><strong>Notes:</strong> ${escapeHtml(item.Notes)}</div>`;
             html += `<h4 style="margin-top:10px;">Compatible Vehicles</h4>`;
             html += '<table style="width:100%;"><thead><tr><th>Make</th><th>Model</th><th>Year(s)</th></tr></thead><tbody>';
             allItemsWithKey.forEach(v => {
-                html += `<tr><td>${v.Make || ''}</td><td>${v.Model || ''}</td><td>${v['Year(s)'] || ''}</td></tr>`;
+                html += `<tr><td>${escapeHtml(v.Make || '')}</td><td>${escapeHtml(v.Model || '')}</td><td>${escapeHtml(v['Year(s)'] || '')}</td></tr>`;
             });
             html += '</tbody></table></div>';
             container.innerHTML = html;
         }
 
-        // Placeholder functions for features referenced in markup but not shown in this file
+        // CSV Export (Smart Export) - inventory
+        function exportInventory() {
+            const searchText = document.getElementById('inventorySearchInput')?.value || '';
+            const transaction = db.transaction([INVENTORY_STORE], 'readonly');
+            const store = transaction.objectStore(INVENTORY_STORE);
+            const req = store.getAll();
+            req.onsuccess = () => {
+                let rows = req.result || [];
+                rows = rows.filter(r => matchesInventoryFilter(r, searchText));
+                if (rows.length === 0) {
+                    alert('No rows to export with current filter.');
+                    return;
+                }
+                // Build CSV
+                const csv = Papa.unparse(rows);
+                downloadString(csv, `transponder-inventory-${timestampForFilename()}.csv`, 'text/csv');
+            };
+        }
+
+        // CSV Export - vehicles
+        function exportVehicles() {
+            const searchText = document.getElementById('vehicleSearchInput')?.value || '';
+            const transaction = db.transaction([VEHICLE_STORE], 'readonly');
+            const store = transaction.objectStore(VEHICLE_STORE);
+            const req = store.getAll();
+            req.onsuccess = () => {
+                let rows = req.result || [];
+                if (searchText) {
+                    const terms = searchText.toLowerCase().trim().split(/\s+/);
+                    rows = rows.filter(item => terms.every(term => Object.values(item).some(val => val && val.toString().toLowerCase().includes(term))));
+                }
+                if (rows.length === 0) {
+                    alert('No vehicle rows to export with current filter.');
+                    return;
+                }
+                const csv = Papa.unparse(rows);
+                downloadString(csv, `transponder-vehicles-${timestampForFilename()}.csv`, 'text/csv');
+            };
+        }
+
+        // Utility: download helper
+        function downloadString(text, filename, mimeType) {
+            const blob = new Blob([text], { type: mimeType || 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        }
+
+        function timestampForFilename() {
+            const d = new Date();
+            return d.toISOString().replace(/[:.]/g, '-');
+        }
+
+        // Placeholder functions for features referenced in markup but not fully implemented here
         function toggleSelectAll(context) {
             const checked = document.getElementById('selectAllInventory')?.checked;
             document.querySelectorAll('#inventoryTable .row-checkbox').forEach(cb => cb.checked = !!checked);
@@ -1106,20 +1188,28 @@
         }
 
         function saveInventory() { document.getElementById('saveStatus').textContent = 'Saved'; setTimeout(()=>document.getElementById('saveStatus').textContent='',1500); }
-        function exportInventory() { alert('Export not implemented in this patch'); }
         function addNewInventoryRow() { alert('Add new row not implemented in this patch'); }
         function deleteSelectedRows() { alert('Delete selected not implemented in this patch'); }
         function saveVehicles() { document.getElementById('saveVehicleStatus').textContent = 'Saved'; setTimeout(()=>document.getElementById('saveVehicleStatus').textContent='',1500); }
-        function exportVehicles() { alert('Export not implemented in this patch'); }
         function resetEverything() { if(confirm('Reset database and remove all imported data?')) { const req = indexedDB.deleteDatabase(DB_NAME); req.onsuccess = ()=>{ alert('Database reset. Reloading.'); location.reload(); }; } }
         function scrollToTop() { window.scrollTo({top:0, behavior:'smooth'}); }
+
+        // Utility: sanitize for HTML insertion
+        function escapeHtml(unsafe) {
+            if (unsafe === null || unsafe === undefined) return '';
+            return unsafe.toString()
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
 
         // Initialize DB on load
         window.addEventListener('DOMContentLoaded', async () => {
             await initDB();
             // initial load
             displayFileList();
-            // pre-load inventory and vehicles so placeholders and UI states are consistent
             displayInventory();
             displayVehicles();
         });
