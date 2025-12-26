@@ -1676,7 +1676,18 @@ if (viewMode === 'grouped') {
             await initDB();
             displayInventory();
             displayFileList();
-            
+
+            // === ADD THESE 3 LINES ===
+            // Re-attach tab click handlers (fixes tabs not switching)
+            document.getElementById('searchTab').onclick = () => switchTab('search');
+            document.getElementById('inventoryTab').onclick = () => switchTab('inventory');
+            document.getElementById('vehicleTab').onclick = () => switchTab('vehicle');
+            document.getElementById('dataTab').onclick = () => switchTab('data');
+
+            // Fix Quick Search input
+            document.getElementById('searchInput').oninput = performQuickSearch;
+            // === END OF ADDITIONS ===
+
             // Register Service Worker for PWA
             if ('serviceWorker' in navigator) {
                 navigator.serviceWorker.register('service-worker.js')
