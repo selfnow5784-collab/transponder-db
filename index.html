@@ -1315,19 +1315,19 @@ function toggleVehicleList(index) {
             });
         }
 
-        // Save inventory changes
+               // Save inventory changes
         function saveInventory() {
             const viewMode = document.querySelector('input[name="inventoryView"]:checked').value;
             const transaction = db.transaction([INVENTORY_STORE], 'readwrite');
             const store = transaction.objectStore(INVENTORY_STORE);
             
             if (viewMode === 'grouped') {
-                // In grouped view, save changes and apply to all vehicles with same product
+                // Update shared fields across the group (Product_Name, Qty, Notes)
                 const rows = document.querySelectorAll('#inventoryTableContainer tbody tr[data-group-index]');
                 
                 rows.forEach(row => {
                     const cells = row.querySelectorAll('td[contenteditable]');
-                    if (cells.length === 0) return; // Skip vehicle list rows
+                    if (cells.length === 0) return;
                     
                     const idsStr = cells[0].getAttribute('data-ids');
                     if (!idsStr) return;
@@ -1337,7 +1337,6 @@ function toggleVehicleList(index) {
                     const qty = cells[1].textContent.trim();
                     const notes = cells[2].textContent.trim();
                     
-                    // Update all vehicles with these IDs
                     ids.forEach(id => {
                         const getRequest = store.get(id);
                         getRequest.onsuccess = () => {
@@ -1351,36 +1350,28 @@ function toggleVehicleList(index) {
                         };
                     });
                 });
-// Save edits to vehicle compatibility list
-    const vehicleCells = document.querySelectorAll('#inventoryTableContainer td[data-id][contenteditable]');
-    vehicleCells.forEach(cell => {
-        const id = parseInt(cell.getAttribute('data-id'));
-        const field = cell.getAttribute('data-field');
-        const value = cell.textContent.trim();
-        
-        const getRequest = store.get(id);
-        getRequest.onsuccess = () => {
-            const item = getRequest.result;
-            if (item) {
-                item[field] = value;
-                store.put(item);
-            }
-        };
-    });
-```
-
-So the structure becomes:
-```
-if (viewMode === 'grouped') {
-    // existing row save code
-    
-    // NEW: vehicle compatibility save code HERE
-    
-} else {
-    // vehicle view code
-}
+                
+                // Save individual vehicle edits in the compatibility list
+                const vehicleRows = document.querySelectorAll('#inventoryTableContainer tr[data-vehicle-id]');
+                vehicleRows.forEach(row => {
+                    const cells = row.querySelectorAll('td[contenteditable]');
+                    const id = parseInt(row.getAttribute('data-vehicle-id'));
+                    
+                    if (id && cells.length >= 3) {
+                        const getRequest = store.get(id);
+                        getRequest.onsuccess = () => {
+                            const item = getRequest.result;
+                            if (item) {
+                                item.Make = cells[0].textContent.trim();
+                                item.Model = cells[1].textContent.trim();
+                                item['Year(s)'] = cells[2].textContent.trim();
+                                store.put(item);
+                            }
+                        };
+                    }
+                });
             } else {
-                // In vehicle view, save individual rows
+                // Vehicle view - save each row individually
                 const rows = document.querySelectorAll('#inventoryTableContainer tbody tr[data-row-id]');
                 
                 rows.forEach(row => {
@@ -1391,7 +1382,6 @@ if (viewMode === 'grouped') {
                         const getRequest = store.get(rowId);
                         getRequest.onsuccess = () => {
                             const item = getRequest.result || { id: rowId };
-                            // Cells now start at index 1 due to checkbox column
                             item.Make = cells[1].textContent.trim();
                             item.Model = cells[2].textContent.trim();
                             item['Year(s)'] = cells[3].textContent.trim();
@@ -1409,7 +1399,7 @@ if (viewMode === 'grouped') {
                 document.getElementById('saveStatus').textContent = 'Saved!';
                 setTimeout(() => {
                     document.getElementById('saveStatus').textContent = '';
-                    displayInventory(); // Refresh to show updated data
+                    displayInventory();
                 }, 2000);
             };
             
@@ -1418,45 +1408,6 @@ if (viewMode === 'grouped') {
                 document.getElementById('saveStatus').style.color = 'red';
             };
         }
-
-        // Save vehicle changes
-        function saveVehicles() {
-            const rows = document.querySelectorAll('#vehicleTableContainer tbody tr');
-            const transaction = db.transaction([VEHICLE_STORE], 'readwrite');
-            const store = transaction.objectStore(VEHICLE_STORE);
-            
-            rows.forEach(row => {
-                const cells = row.querySelectorAll('td');
-                const rowId = parseInt(row.getAttribute('data-row-id'));
-                
-                if (rowId) {
-                    const getRequest = store.get(rowId);
-                    getRequest.onsuccess = () => {
-                        const item = getRequest.result || {};
-                        item.Make = cells[0].textContent.trim();
-                        item.Model = cells[1].textContent.trim();
-                        item.Year_Range = cells[2].textContent.trim();
-                        item.Product_Name = cells[3].textContent.trim();
-                        item.Qty = cells[4].textContent.trim();
-                        item.Notes = cells[5].textContent.trim();
-                        store.put(item);
-                    };
-                }
-            });
-            
-            transaction.oncomplete = () => {
-                document.getElementById('saveVehicleStatus').textContent = 'Saved!';
-                setTimeout(() => {
-                    document.getElementById('saveVehicleStatus').textContent = '';
-                }, 2000);
-            };
-            
-            transaction.onerror = () => {
-                document.getElementById('saveVehicleStatus').textContent = 'Save failed!';
-                document.getElementById('saveVehicleStatus').style.color = 'red';
-            };
-        }
-
         // Export inventory to CSV - smart export (filtered if search active)
         function exportInventory() {
             const transaction = db.transaction([INVENTORY_STORE], 'readonly');
