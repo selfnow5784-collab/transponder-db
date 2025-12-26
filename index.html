@@ -748,74 +748,87 @@
             };
         }
         
-        // Display grouped inventory (by Product_Name)
-        function displayGroupedInventory(data, container) {
-            // Group by Product_Name
-            const grouped = {};
-            data.forEach(item => {
-                const key = item.Product_Name || 'Unknown Product';
-                if (!grouped[key]) {
-                    grouped[key] = {
-                        product: key,
-                        qty: item.Qty,
-                        notes: item.Notes,
-                        type: item.Type,
-                        vehicles: [],
-                        ids: []
-                    };
-                }
-                grouped[key].vehicles.push({
-                    make: item.Make,
-                    model: item.Model,
-                    year: item['Year(s)']
-                });
-                grouped[key].ids.push(item.id);
-            });
-            
-            const groupedArray = Object.values(grouped);
-            
-            // Apply sorting if exists
-            if (window.inventorySortColumn) {
-                groupedArray.sort((a, b) => {
-                    let aVal = a.product;
-                    let bVal = b.product;
-                    if (aVal < bVal) return window.inventorySortDirection === 'asc' ? -1 : 1;
-                    if (aVal > bVal) return window.inventorySortDirection === 'asc' ? 1 : -1;
-                    return 0;
-                });
-            }
-            
-            let html = '<table id="inventoryTable"><thead><tr>';
-            html += '<th style="width: 40px;"><input type="checkbox" id="selectAllInventory" onchange="toggleSelectAll(\'inventory\')"></th>';
-            html += '<th class="sortable" onclick="sortInventoryTable(\'Product_Name\')">Product Name</th>';
-            html += '<th style="width: 120px;">Vehicles</th>';
-            html += '<th style="width: 80px;">Qty</th>';
-            html += '<th>Notes</th>';
-            html += '</tr></thead><tbody>';
-            
-            groupedArray.forEach((group, index) => {
-                const qtyClass = isInStock(group.qty) ? 'stock-indicator' : 'no-stock';
-                html += `<tr data-group-index="${index}">`;
-                html += `<td><input type="checkbox" class="row-checkbox" data-ids="${group.ids.join(',')}"></td>`;
-                html += `<td contenteditable="true" data-field="Product_Name" data-ids="${group.ids.join(',')}">${group.product}</td>`;
-                html += `<td style="text-align: center;"><button class="expand-btn" onclick="toggleVehicleList(${index})" style="background: hotpink; color: white; border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer;">${group.vehicles.length} vehicle${group.vehicles.length > 1 ? 's' : ''} ▼</button></td>`;
-                html += `<td contenteditable="true" class="${qtyClass}" data-field="Qty" data-ids="${group.ids.join(',')}">${group.qty || 0}</td>`;
-                html += `<td contenteditable="true" data-field="Notes" data-ids="${group.ids.join(',')}">${group.notes || ''}</td>`;
-                html += '</tr>';
-                
-                // Add expandable vehicle list row
-                html += `<tr id="vehicleList${index}" style="display: none;"><td colspan="5">`;
-                html += '<div style="background: #f9f9f9; padding: 10px; border-left: 3px solid hotpink;"><strong>Compatible with:</strong><div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-top: 5px;">';
-                group.vehicles.forEach(v => {
-                    html += `<div>• ${v.make} ${v.model} (${v.year})</div>`;
-                });
-                html += '</div></div></td></tr>';
-            });
-            
-            html += '</tbody></table>';
-            html += `<div style="margin-top: 10px; color: #666;">Showing ${groupedArray.length} unique keys (${data.length} vehicles total)</div>`;
-            container.innerHTML = html;
+function displayGroupedInventory(data, container) {
+    // Group by Product_Name
+    const grouped = {};
+    data.forEach(item => {
+        const key = item.Product_Name || 'Unknown Product';
+        if (!grouped[key]) {
+            grouped[key] = {
+                product: key,
+                qty: item.Qty,
+                notes: item.Notes,
+                type: item.Type,
+                vehicles: [],
+                ids: []
+            };
         }
+        grouped[key].vehicles.push({
+            make: item.Make,
+            model: item.Model,
+            year: item['Year(s)']
+        });
+        grouped[key].ids.push(item.id);
+    });
+    
+    const groupedArray = Object.values(grouped);
+    
+    // Apply sorting if exists
+    if (window.inventorySortColumn) {
+        groupedArray.sort((a, b) => {
+            let aVal = a.product;
+            let bVal = b.product;
+            if (aVal < bVal) return window.inventorySortDirection === 'asc' ? -1 : 1;
+            if (aVal > bVal) return window.inventorySortDirection === 'asc' ? 1 : -1;
+            return 0;
+        });
+    }
+    
+    let html = '<table id="inventoryTable"><thead><tr>';
+    html += '<th style="width: 40px;"><input type="checkbox" id="selectAllInventory" onchange="toggleSelectAll(\'inventory\')"></th>';
+    html += '<th class="sortable" onclick="sortInventoryTable(\'Product_Name\')">Product Name</th>';
+    html += '<th style="width: 120px;">Vehicles</th>';
+    html += '<th style="width: 80px;">Qty</th>';
+    html += '<th>Notes</th>';
+    html += '</tr></thead><tbody>';
+    
+    groupedArray.forEach((group, index) => {
+        const qtyClass = isInStock(group.qty) ? 'stock-indicator' : 'no-stock';
+        html += `<tr data-group-index="${index}">`;
+        html += `<td><input type="checkbox" class="row-checkbox" data-ids="${group.ids.join(',')}"></td>`;
+        html += `<td contenteditable="true" data-field="Product_Name" data-ids="${group.ids.join(',')}">${group.product}</td>`;
+        html += `<td style="text-align: center;"><button class="expand-btn" onclick="toggleVehicleList(${index})" style="background: hotpink; color: white; border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer;">${group.vehicles.length} vehicle${group.vehicles.length > 1 ? 's' : ''} ▼</button></td>`;
+        html += `<td contenteditable="true" class="${qtyClass}" data-field="Qty" data-ids="${group.ids.join(',')}">${group.qty || 0}</td>`;
+        html += `<td contenteditable="true" data-field="Notes" data-ids="${group.ids.join(',')}">${group.notes || ''}</td>`;
+        html += '</tr>';
+        
+        // Add expandable vehicle list row
+        html += `<tr id="vehicleList${index}" style="display: none;"><td colspan="5">`;
+        html += '<div style="background: #f9f9f9; padding: 15px; border-radius: 5px;">';
+        html += '<h4 style="color: hotpink; margin: 0 0 10px 0;">Compatible Vehicles:</h4>';
+        html += '<table style="width: 100%; border-collapse: collapse;">';
+        html += '<thead><tr><th style="width: 30%;">Make</th><th style="width: 30%;">Model</th><th style="width: 30%;">Year(s)</th><th style="width: 10%;">Actions</th></tr></thead>';
+        html += '<tbody>';
+        
+        group.vehicles.forEach((vehicle, vIndex) => {
+            const vid = group.ids[vIndex];
+            html += '<tr>';
+            html += `<td contenteditable="true" data-id="${vid}" data-field="Make">${vehicle.make || ''}</td>`;
+            html += `<td contenteditable="true" data-id="${vid}" data-field="Model">${vehicle.model || ''}</td>`;
+            html += `<td contenteditable="true" data-id="${vid}" data-field="Year(s)">${vehicle.year || ''}</td>`;
+            html += `<td><button onclick="deleteVehicleFromGroup(${vid}, ${index})" style="background: red; color: white; border: none; padding: 2px 6px; border-radius: 3px; cursor: pointer;">Delete</button></td>`;
+            html += '</tr>';
+        });
+        
+        html += '</tbody></table>';
+        html += `<button onclick="addNewVehicleToGroup('${escape(group.product)}', ${index})" style="margin-top: 10px; background: hotpink; color: black; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer;">+ Add New Vehicle</button>`;
+        html += '</div>';
+        html += '</td></tr>';
+    });
+    
+    html += '</tbody></table>';
+    container.innerHTML = html;
+}
         
         // Display vehicle inventory (ungrouped)
         function displayVehicleInventory(data, container) {
@@ -1622,6 +1635,73 @@
                     .catch(err => console.error('❌ Service Worker registration failed:', err));
             }
         };
+
+        // Initialize on page load
+        window.onload = async () => {
+            await initDB();
+            displayInventory();
+            displayFileList();
+            
+            // Register Service Worker for PWA
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('service-worker.js')
+                    .then(reg => console.log('✅ Service Worker registered:', reg.scope))
+                    .catch(err => console.error('❌ Service Worker registration failed:', err));
+            }
+        };
+
+        function toggleVehicleList(index) {
+            const row = document.getElementById(`vehicleList${index}`);
+            const button = document.querySelector(`tr[data-group-index="${index}"] .expand-btn`);
+            if (row.style.display === 'none' || row.style.display === '') {
+                row.style.display = 'table-row';
+                button.innerHTML = button.innerHTML.replace('▼', '▲');
+            } else {
+                row.style.display = 'none';
+                button.innerHTML = button.innerHTML.replace('▲', '▼');
+            }
+        }
+
+        function addNewVehicleToGroup(productName, groupIndex) {
+            productName = unescape(productName);
+            const transaction = db.transaction([INVENTORY_STORE], 'readwrite');
+            const store = transaction.objectStore(INVENTORY_STORE);
+            
+            // Get one existing item to copy shared fields (Qty, Notes, Type)
+            const idsStr = document.querySelector(`tr[data-group-index="${groupIndex}"] td[data-field="Product_Name"]`).getAttribute('data-ids');
+            const firstId = parseInt(idsStr.split(',')[0]);
+            
+            const getRequest = store.get(firstId);
+            getRequest.onsuccess = () => {
+                const existing = getRequest.result || {};
+                const newItem = {
+                    Make: '',
+                    Model: '',
+                    'Year(s)': '',
+                    Product_Name: productName,
+                    Type: existing.Type || '',
+                    Qty: existing.Qty || '0',
+                    Notes: existing.Notes || ''
+                };
+                
+                store.add(newItem).onsuccess = () => {
+                    displayInventory(); // Refresh the entire inventory view
+                };
+            };
+        }
+
+        function deleteVehicleFromGroup(id, groupIndex) {
+            if (!confirm('Delete this vehicle compatibility entry?')) return;
+            
+            const transaction = db.transaction([INVENTORY_STORE], 'readwrite');
+            const store = transaction.objectStore(INVENTORY_STORE);
+            store.delete(id).onsuccess = () => {
+                displayInventory(); // Refresh after deletion
+            };
+        }
+    </script>
+
+
     </script>
 </body>
 </html>
